@@ -1,0 +1,43 @@
+# ---- Python caches / build ----
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+
+# ---- Secrets / credentials (NEVER commit) ----
+.mp_api_key
+.env
+.env.*
+*.key
+*.pem
+*.ppk
+*.ovpn
+.pass_key*
+
+# ---- Large data / model weights (distributed via GitHub Releases) ----
+data/
+checkpoints/
+output/
+tmp/
+
+# ---- Personal / local-only material (see _private/) ----
+_private/
+.remote-results/
+*.pdf
+tmp_*.py
+tmp_*.txt
+
+# ---- Excluded local-only tooling (not part of the public package) ----
+tests/
+Scripts/
+agmq-main/
