@@ -1,49 +1,54 @@
-# GenIM：基于 Materials Project 的 intermetallic 结构生成（MVP）
+# GenIM: Generative Intermetallic Crystal Structures (MVP)
 
-你要做的事：用 Materials Project (MP) 的结构数据做训练集，训练一个“生成式结构构建模型”，快速产生合理的 intermetallic 晶体结构。
+**English** | [简体中文](README.zh-CN.md)
 
-本仓库实现一个 **可落地跑通的 MVP**：参考两篇相关工作的核心思想（Wyckoff/对称性表征 + 自回归 Transformer 顺序采样 + 生成后过滤验收，详见文末 [参考文献](#参考文献)），做成可复用的 Python 包与命令行工具。
+GenIM trains a generative structure builder on Materials Project (MP) data to quickly produce physically plausible intermetallic crystal structures.
 
-## 主要能力
+This repository is a **runnable MVP** that follows the core ideas of two related works (symmetry/Wyckoff representation + autoregressive Transformer sampling + post-generation filtering; see [References](#references)), packaged as a reusable Python library and CLI.
 
-- 从 MP API 拉取结构（需要 `MP_API_KEY`）。
-- 用 `spglib` 把结构标准化并提取 **Hall number / Wyckoff site** 表征。
-- 把每个结构编码成 token 序列，训练一个 **Causal Transformer LM** 做自回归生成。
-- 把生成的序列解码回 3D 周期结构（ASE `Atoms`），并做快速验收过滤（最小原子距、重复/冲突、对称性可识别等）。
-- 生成阶段默认启用**更贴近物理的几何约束**：连通性检查 + 体积/键长自适应缩放（避免“分裂簇/过稀晶格”）。
+## Features
 
-## 环境
+- Pull structures from the MP API (requires `MP_API_KEY`).
+- Standardize structures with `spglib` and extract a **Hall number / Wyckoff site** representation.
+- Encode each structure into a token sequence and train a **Causal Transformer LM** for autoregressive generation.
+- Decode generated sequences back into 3D periodic structures (ASE `Atoms`) and run fast acceptance filtering (minimum interatomic distance, duplicates/clashes, recognizable symmetry, etc.).
+- Generation enables **physically motivated geometric constraints** by default: connectivity checks + volume/bond-length autoscaling (avoids fragmented clusters / over-sparse lattices).
+
+## Requirements
 
 - Python 3.9+
-- 已在本机环境验证：`torch`, `ase`, `spglib`, `requests`
+- Core: `torch`, `ase`, `spglib`, `requests`, `numpy`, `pyyaml`, `tqdm`, `matplotlib`, `Pillow`
+- Optional extras: `genim[mlip]` (fairchem-core for MLIP relaxation), `genim[hull]` (pymatgen + scipy for energy-above-hull and surface screening), `genim[all]` for everything.
 
-安装（开发态）：
+Install (editable):
 
-```powershell
+```bash
 python -m pip install -e .
+# full features:
+python -m pip install -e ".[all]"
 ```
 
-## 配置文件（conf.yml）
+## Configuration (conf.yml)
 
-本项目把**所有可调参数**集中到 `conf.yml`（仓库根目录已提供一份带默认值的配置）。你也可以用命令生成模板：
+All tunable parameters live in `conf.yml` (a default config is provided at the repo root). You can also regenerate a template:
 
-```powershell
+```bash
 genim conf-init --out conf.yml
 ```
 
-常用配置项：
+Common groups:
 
-- 训练集抓取：`mp_download.*`（默认支持未来扩展到 `nelements_max: 5`）
-- 预处理：`preprocess.*`（可用 `seed_all_elements/seed_all_hall` 提升跨元素/对称性泛化）
-- 训练：`train.*`（默认 `element_emb: features` 用周期表特征做元素嵌入/预测）
-- 生成：`generate.*`（`n_max`、去重、空间群采样等）
-- 生成几何增强：`generate.autoscale_cell`、`generate.prototype_mode`、`validate.max_dist_factor`、`validate.require_connected`
+- Dataset download: `mp_download.*`
+- Preprocessing: `preprocess.*` (`seed_all_elements` / `seed_all_hall` improve cross-element/symmetry generalization)
+- Training: `train.*` (`element_emb: features` uses periodic-table features for element embedding/prediction)
+- Generation: `generate.*` (`n_max`, deduplication, space-group sampling, ...)
+- Geometric enhancement: `generate.autoscale_cell`, `generate.prototype_mode`, `validate.max_dist_factor`, `validate.require_connected`
 
-## 快速开始（离线示例）
+## Quick start (offline example)
 
-先用内置的少量示例结构跑通端到端（不需要 MP key）：
+Run the full pipeline on a few built-in example structures (no MP key needed):
 
-```powershell
+```bash
 genim examples-make --out data/examples.jsonl
 genim preprocess --in data/examples.jsonl --out data/examples.tokens.pt
 genim train --data data/examples.tokens.pt --out checkpoints/example.pt --steps 200
@@ -51,195 +56,182 @@ genim generate --ckpt checkpoints/example.pt --n 10 --out-dir output/cif
 genim validate --cif-dir output/cif
 ```
 
-## 最简生成：只指定元素 + 元素数
+## Minimal generation: elements + element count
 
-用户只需要指定“必须包含的元素”以及“总元素种类数”，其余全部从 `conf.yml` 读取：
+Specify only the required elements and the total number of element species; everything else comes from `conf.yml`:
 
-```powershell
+```bash
 genim synth --elements Fe Si --nelements 2
 genim synth --elements Fe Si --nelements 3
 ```
 
-- `--nelements 2`：只生成只含 Fe/Si 的二元结构
-- `--nelements 3`：生成包含 Fe/Si 的三元结构，第三个元素从 intermetallic 元素池随机补齐
-- `generate.n_max` 是最大生成数；若唯一结构不足，会自动输出能生成的最大唯一数（不报错）
-- 默认开启严格去重：`generate.dedup.*`
-- 默认 `generate.prototype_mode: target`：直接在目标元素体系中采样（晶格/键长更合理）；需要更“原型多样性”可改成 `random`
-- 默认 `generate.hall_mode: model`（质量优先）；如需覆盖 230 空间群采样，改为 `uniform_230`
+- `--nelements 2`: binary structures containing only Fe/Si.
+- `--nelements 3`: ternary structures containing Fe/Si, with the third element drawn from the intermetallic element pool.
+- `generate.n_max` is the maximum count; if there are not enough unique structures, it outputs as many unique ones as possible (no error).
+- Strict deduplication is on by default (`generate.dedup.*`).
+- Default `generate.prototype_mode: target` samples directly in the target element system (more reasonable lattice/bond lengths); set to `random` for more prototype diversity.
+- Default `generate.hall_mode: model` (quality first); set to `uniform_230` to cover all 230 space groups.
 
-### 组成比例的写法
+### Composition ratios
 
-`--ratios` 始终按 `--elements` 的顺序书写，常见写法如下：
+`--ratios` is always written in `--elements` order:
 
-```powershell
-# 1) nelements == len(elements)：写“原子数比例”
+```bash
+# 1) nelements == len(elements): atom-count ratio
 genim synth --elements Ni Fe Co Al --nelements 4 --ratios 1 1 1 1
-# 表示 Ni:Fe:Co:Al = 1:1:1:1
+# Ni:Fe:Co:Al = 1:1:1:1
 
-# 2) 有些已列元素只要求出现，不固定组成：用 X
+# 2) some listed elements only required to appear, composition free: use X
 genim synth --elements Ni Fe Co Al --nelements 4 --ratios 1 1 X X --ratio-mode ratio
-# 表示 Ni:Fe 严格 1:1；Co 和 Al 必须出现，但占比不固定
+# Ni:Fe strictly 1:1; Co and Al must appear but with free fractions
 
-# 3) 百分比写法：数值位是 total-atom 百分比，X 表示其余元素不固定
+# 3) percent: numeric slots are total-atom percentages, X is free
 genim synth --elements Ni Fe Co Al --nelements 4 --ratios 25 25 X X --ratio-mode percent
-# 表示 Ni 占 25 at.%、Fe 占 25 at.%；Co 和 Al 合计占剩余 50 at.%
+# Ni 25 at.%, Fe 25 at.%; Co and Al share the remaining 50 at.%
 
-# 4) nelements > len(elements)，并且想让额外元素也不固定
+# 4) nelements > len(elements), extra elements free
 genim synth --elements Fe Si --nelements 3 --ratios 30 30 --ratio-mode percent
-# 表示 Fe 占 30 at.%、Si 占 30 at.%；剩余第 3 个元素合计 40 at.%
+# Fe 30 at.%, Si 30 at.%; the 3rd element gets the remaining 40 at.%
 
-# 5) 不限制组成比例
+# 5) no composition constraint
 genim synth --elements Fe Si --nelements 3
 ```
 
-- `--ratios` 的个数必须与 `--elements` 个数一致。
-- `X` 表示“该元素必须出现，但组成不固定”。
-- `--ratio-mode ratio`：只对数值位施加严格原子数比例约束。
-- `--ratio-mode percent`：只对数值位施加 total-atom 百分比约束；所有 `X` 位和额外补齐元素共同分配剩余百分比。
-- 默认按 `ratio` 解释；只有你明确写 `--ratio-mode percent` 时，数值位才按百分比解释。
-- 建议只在“数值位就是 at.%”时写 `--ratio-mode percent`。
+- The number of `--ratios` must equal the number of `--elements`.
+- `X` means "this element must appear, but its fraction is not fixed".
+- `--ratio-mode ratio`: constrain only the relative atom counts of numeric slots.
+- `--ratio-mode percent`: numeric slots are total-atom percentages; all `X` slots and extra elements share the remainder.
+- Default interpretation is `ratio`; numeric slots are treated as percentages only when you pass `--ratio-mode percent`.
 
-## 数据集覆盖度检查（推荐）
+## Dataset coverage check (recommended)
 
-为了做“更通用”的 intermetallic 生成，建议先用 `inspect` 看训练集覆盖度（元素、Hall number、Wyckoff 代表位点数等）：
+For more general intermetallic generation, inspect training-set coverage first (elements, Hall numbers, number of Wyckoff representative sites, ...):
 
-```powershell
+```bash
 genim inspect --in data/mp_train.jsonl
 genim inspect --in data/mp_train.jsonl --wyckoff
 genim inspect --in data/mp_train.tokens.pt
 ```
 
-## 用 Materials Project 做训练集
+## Using Materials Project as the training set
 
-1) 设置 API key：
+1) Set the API key:
 
-```powershell
-$env:MP_API_KEY="你的MPKey"   # 或者用 $env:PMG_MAPI_KEY
+```bash
+export MP_API_KEY="your-mp-key"   # or PMG_MAPI_KEY
 ```
 
-如果你不想在终端历史里留下 key，也可以把 key 写到当前目录的 `.mp_api_key`（一行一个 key），本工具会自动读取。
+To avoid leaving the key in your shell history, write it into a local `.mp_api_key` file (one key per line); the tool reads it automatically. This file is gitignored.
 
-2) 下载（示例：限定元素集合 + 结构大小过滤）：
+2) Download (example: restrict element set + structure size):
 
-```powershell
+```bash
 genim mp-download --elements Fe Ni Al --max-atoms 80 --limit 5000 --out data/mp.jsonl
 ```
 
-3) 预处理/训练/生成同上。
+3) Preprocess / train / generate as above.
 
-### 生成时的 intermetallic 约束
+### Intermetallic constraints at generation time
 
-`genim generate` 默认会做两类生成后过滤：
+`genim generate` applies two post-generation filters by default:
 
-- 结构几何/对称性快速验收（最小原子距、可识别空间群等）。
-- **intermetallic 过滤**：默认要求 **至少 2 种元素**，并排除常见非金属/卤素等（可用 `--include-metalloids` 放开类金属）。
+- Fast geometric/symmetry acceptance (minimum interatomic distance, recognizable space group, ...).
+- **Intermetallic filter**: requires **at least 2 elements** and excludes common non-metals/halogens (use `--include-metalloids` to allow metalloids).
 
-同时默认开启**严格去重**，并把 `--n` 解释为“最多输出多少个**唯一**结构”。如果约束太严格导致达不到 `--n`，程序会输出尽可能多的唯一结构并给出拒绝原因统计（不再抛异常）。
+Strict deduplication is on by default, and `--n` is interpreted as "max number of **unique** structures". If constraints are too strict to reach `--n`, the program outputs as many unique structures as possible and reports rejection-reason statistics (no exception).
 
-如果你希望更贴近“二元/三元 intermetallic”训练集分布，可在生成时加：
+To better match a binary/ternary intermetallic distribution:
 
-```powershell
+```bash
 genim generate --ckpt checkpoints/mp_train.pt --n 200 --out-dir output/mp_cif --nelements-max 3
 ```
 
-### “原型生成 → 元素替换”（更通用）
+### "Prototype generation → element substitution" (more general)
 
-当你希望生成某些训练集中覆盖较少/未覆盖的元素体系时（例如含类金属 Si/Ge 等），更稳妥的做法是：
+To generate element systems that are rare/absent in the training set (e.g. metalloids such as Si/Ge), a more robust approach is:
 
-1) 先让模型生成**结构原型**（空间群/Wyckoff/坐标等）；
-2) 再用 `--substitute-elements` 把生成结构中的“元素集合”替换为你指定的元素（保持原型不变）。
+1) let the model generate **structural prototypes** (space group / Wyckoff / coordinates);
+2) use `--substitute-elements` to replace the element set of the generated structures (keeping the prototype).
 
-示例（生成 Fe–Si 二元原型并替换为 FeSi）：
+Example (generate Fe–Si binary prototypes and substitute FeSi):
 
-```powershell
+```bash
 genim generate --ckpt checkpoints/mp_train_fullsg_60.pt --n 20 --out-dir output/demo_FeSi --nelements-min 2 --nelements-max 2 --include-metalloids --substitute-elements Fe Si
 ```
 
-## 备注（MVP 取舍）
+## Notes (MVP trade-offs)
 
-为了先把“落地链路”跑通，本版本对连续变量（晶格参数与 Wyckoff 坐标）采用了 **离散分箱 token**。后续如需对标论文更强的表现，可把坐标/晶格改成连续密度建模（Gaussian embedding + mixture density head 等）。
+To get the end-to-end pipeline running first, this version discretizes continuous variables (lattice parameters and Wyckoff coordinates) into **binned tokens**. For stronger performance closer to the reference papers, the coordinates/lattice can be modeled with continuous density (Gaussian embedding + mixture density head, etc.).
 
-另外，如果你的目标是“尽可能通用/覆盖更多 intermetallic 体系”，建议：
+For maximum generality / broader intermetallic coverage:
 
-- `mp-download`：提高 `--limit`，放宽 `--nelements-max/--max-atoms/--eah-max`，并按需加 `--include-metalloids`。
-- `preprocess`：按需增大 `--max-sites`（会增加序列长度与训练成本）；也可加 `--seed-all-elements/--seed-all-hall` 以提升跨元素/对称性的可泛化性。
-- `train`：可用 `--element-emb features` 开启基于周期表特征的元素嵌入/预测（对未覆盖元素的“原则可生成”更友好）。
+- `mp-download`: increase `--limit`, relax `--nelements-max/--max-atoms/--eah-max`, add `--include-metalloids` as needed.
+- `preprocess`: increase `--max-sites` as needed (longer sequences, higher training cost); add `--seed-all-elements/--seed-all-hall` for better cross-element/symmetry generalization.
+- `train`: use `--element-emb features` to enable periodic-table feature-based element embedding/prediction.
 
-## 更新（2026-03-04）
+## MLIP relaxation + Energy Above Hull scoring
 
-- `mp-download` 新增 `--chemistry any`：用于构建“全空间群覆盖”数据集（不局限 intermetallic）。
-- 新增 `sym-seed`：当 MP 缺失某些空间群（例如本环境下缺失 SG=168/207）时，用 spglib 数据库合成最小结构样本补齐 230/230 空间群覆盖（仅用于对称性覆盖/条件化）。
-- `synth` 新增 `--n`：覆盖 `conf.yml` 的 `generate.n_max`（依然解释为最大生成数）。
-- 验收/过滤增强：`validate.min_dist_factor`（基于 covalent radii 的最小距离因子）+ `generate.dedup.mode: prototype`（更严格去重，避免“晶格略变”的重复）。
+`genim score` (alias `genim mlip`) relaxes generated structures (cell + atoms) with **eSEN/OMAT24 (fairchem-core)**, automatically builds an ML reference set for the same chemical system (MP structures + the same MLIP energies), computes `Energy Above Hull (eV/atom)` per structure, and writes a CSV. The CSV also reports `composition_ratio`, `composition_percent`, and `composition_counts`.
 
-## MLIP 弛豫 + Energy Above Hull 打分（2026-03-04）
-
-新增 `genim score`（别名：`genim mlip`）：用 **eSEN/OMAT24（fairchem-core）** 对生成结构做“晶格 + 原子”快速弛豫，并自动构建同一化学体系的 ML reference set（来自 MP 结构 + 同一 MLIP 能量），计算每个结构的 `Energy Above Hull (eV/atom)`，输出 CSV。
-CSV 会额外给出 `composition_ratio`、`composition_percent` 和 `composition_counts`，分别表示约化比例、at.% 和具体原子个数。
-
-示例：
-
-```powershell
+```bash
 genim synth --elements Fe Si --nelements 2
-genim score --conf conf.yml --cif-dir output\\Fe-Si_2el
+genim score --conf conf.yml --cif-dir output/Fe-Si_2el
 
-# 或者用更“傻瓜式”的两步别名：
+# or the two-step aliases:
 genim gen --elements Fe Si --nelements 2
-genim mlip --conf conf.yml --cif-dir output\\Fe-Si_2el
+genim mlip --conf conf.yml --cif-dir output/Fe-Si_2el
 ```
+
+> Requires the optional extras: `pip install ".[all]"` (fairchem-core + pymatgen + scipy).
 
 ## Interactive mode
 
 Run `genim` with no subcommand to enter an interactive menu. Press Enter to accept defaults (loaded from `conf.yml`).
 
-```powershell
+```bash
 genim
 ```
 
-The menu prints which paths it reads/writes.
-It runs one selected module and then exits.
-For composition control in interactive mode, write one line as `R/P + values`, for example `R 1 1 X X` or `P 20 20 20 20`.
+The menu prints which paths it reads/writes, runs one selected module, then exits. For composition control in interactive mode, write one line as `R/P + values`, e.g. `R 1 1 X X` or `P 20 20 20 20`.
 
-## Structure Snapshot Panel
+## Structure snapshot panel
 
-可用 `genim snapshot-panel` 从生成的 CIF 目录中抽取固定数量的结构做快照面板。默认随机抽取，支持按 ID 区间过滤，每行 6 个，标签格式为 `009-Fe5Co5Ni5Al5`，其中数值是实际晶胞内原子数。
-Each tile is rendered in a perspective crystal view with atoms and unit-cell lattice lines visible at the same time.
+`genim snapshot-panel` samples a fixed number of structures from a generated CIF directory into a snapshot panel. Sampling is random by default, supports filtering by ID range, 6 per row, with labels like `009-Fe5Co5Ni5Al5` (the number is the actual atom count in the cell). Each tile is rendered in a perspective crystal view with atoms and unit-cell lattice lines visible at the same time.
 
-```powershell
-genim snapshot-panel --cif-dir output\\Fe-Co-Ni-Al_4el --n 12
-genim snapshot-panel --cif-dir output\\Fe-Co-Ni-Al_4el --n 12 --id-start 9 --id-end 40
+```bash
+genim snapshot-panel --cif-dir output/Fe-Co-Ni-Al_4el --n 12
+genim snapshot-panel --cif-dir output/Fe-Co-Ni-Al_4el --n 12 --id-start 9 --id-end 40
 ```
 
-配置都在 `conf.yml`：
+Configuration lives in `conf.yml`:
 
-- `ml.*`：选择 eSEN 模型/设备；建议把 `ml.checkpoint` 指向本地 `esen_30m_oam.pt`（避免 HF 拉取/门控）。
-- `relax.*`：bulk 弛豫设置（ASE + ExpCellFilter/UnitCellFilter）。
-- `hull.*`：MP 参考池抓取 + reference-relax，`stable_threshold_eV_per_atom: 0.2` 对应 200 meV/atom 稳定门槛。
+- `ml.*`: choose the eSEN model/device; point `ml.checkpoint` at a local `esen_30m_oam.pt` to avoid HF download/gating.
+- `relax.*`: bulk relaxation settings (ASE + ExpCellFilter/UnitCellFilter).
+- `hull.*`: MP reference pool + reference relaxation; `stable_threshold_eV_per_atom: 0.2` is the 200 meV/atom stability threshold.
 
-## 预训练权重与数据下载
+## Pretrained weights & data download
 
-为保持仓库轻量，训练数据（`data/`）与预训练权重（`checkpoints/`）**不随源码一起提交**，而是作为 [GitHub Releases](https://github.com/XYG-Research/GenIM/releases) 的附件分发：
+To keep the repository lightweight, the training data (`data/`) and pretrained weights (`checkpoints/`) are **not committed with the source**; they are distributed as [GitHub Releases](https://github.com/XYG-Research/GenIM/releases) assets:
 
-- `mp_train_fullsg_60.pt`：在 230 空间群全覆盖 + intermetallic 合并集上训练的 Causal Transformer 权重。
-- `mp_train.jsonl` / `mp_train.tokens.pt`：MP 抓取的训练结构与其 token 化数据集（源自 Materials Project，遵循其使用条款）。
+- `mp_train_fullsg_60.pt`: Causal Transformer weights trained on the full 230-space-group coverage + intermetallic merged set.
+- `mp_train.jsonl` / `mp_train.tokens.pt`: MP-derived training structures and their tokenized dataset (sourced from Materials Project, subject to its terms of use).
 
-下载后放回对应目录即可（默认路径见 `conf.yml` 的 `paths.*`）：
+Download and place them back into the corresponding directories (default paths in `conf.yml` under `paths.*`):
 
-```powershell
-# 例：把下载的权重放到 checkpoints/ 下
-mkdir checkpoints
+```bash
+mkdir -p checkpoints
 mv mp_train_fullsg_60.pt checkpoints/
 ```
 
-你也可以**完全从零复现**：用 `genim mp-download`（需自备 `MP_API_KEY`）抓取数据，再 `preprocess` → `train`，命令见 [`ACCEPTANCE.md`](ACCEPTANCE.md)。
+You can also **reproduce from scratch**: use `genim mp-download` (with your own `MP_API_KEY`), then `preprocess` → `train`. See [`ACCEPTANCE.md`](ACCEPTANCE.md).
 
-## 参考文献
+## References
 
-本项目方法学受以下工作启发（均发表于 *npj Computational Materials*）：
+This project's methodology is inspired by the following works (both in *npj Computational Materials*):
 
 1. DOI: [10.1038/s41524-025-01881-2](https://doi.org/10.1038/s41524-025-01881-2)
 2. DOI: [10.1038/s41524-025-01940-8](https://doi.org/10.1038/s41524-025-01940-8)
 
 ## License
 
-本项目以 [BSD 3-Clause License](LICENSE) 开源。
+Released under the [BSD 3-Clause License](LICENSE).
