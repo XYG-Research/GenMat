@@ -18,7 +18,6 @@ from .inspect import InspectConfig, inspect_any
 from .mp_download import download_mp_jsonl
 from .preprocess import preprocess_jsonl_to_tokens
 from .score import score_cif_dir
-from .surface_screen import run_surface_screen, SurfaceScreenConfig
 from .synth import synth_cifs
 from .sym_seed import SymSeedConfig, write_symmetry_seeds_jsonl
 from .train import train_lm
@@ -872,6 +871,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote scores: {csv_path}")
         return 0
     if args.cmd == "surface-screen":
+        # `surface-screen` depends on the optional `hull` extra (pymatgen + scipy).
+        # Import lazily so the rest of the CLI works with core dependencies only.
+        try:
+            from .surface_screen import run_surface_screen, SurfaceScreenConfig
+        except ImportError as exc:  # pragma: no cover - depends on optional extras
+            print(
+                "Error: `surface-screen` requires the optional 'hull' extra "
+                "(pymatgen, scipy). Install with: pip install 'genim[hull]'.\n"
+                f"Underlying import error: {exc}",
+                file=sys.stderr,
+            )
+            return 1
         summary = run_surface_screen(
             SurfaceScreenConfig(
                 input_dir=args.input_dir,
