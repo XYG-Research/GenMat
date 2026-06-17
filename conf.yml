@@ -1,0 +1,195 @@
+# GenIM unified configuration (all knobs live here).
+# Typical usage:
+#   genim synth --conf conf.yml --elements Fe Si --nelements 3
+#
+# Notes:
+# - Keep your MP API key in env var MP_API_KEY/PMG_MAPI_KEY or a local `.mp_api_key` file (ignored by git).
+# - `generate.n_max` is a *maximum*: the program will output as many unique structures as it can.
+
+paths:
+  mp_jsonl: data/mp_train.jsonl
+  tokens_pt: data/mp_train.tokens.pt
+  ckpt: checkpoints/mp_train_fullsg_60.pt
+  out_dir: output
+
+mp_download:
+  chemsys: null
+  elements: null
+  # intermetallic | any
+  chemistry_filter: intermetallic
+  # If true: download a balanced dataset across all 230 spacegroups (uses MP server-side spacegroup_number filter).
+  balance_spacegroups: false
+  per_spacegroup: 50
+  max_atoms: 200
+  eah_max: 1.0
+  nelements_min: 2
+  nelements_max: 5
+  limit: 100000
+  per_page: 500
+  timeout: 60.0
+  include_metalloids: true
+
+preprocess:
+  max_sites: 25
+  symprec: 0.01
+  coord_bins: 128
+  len_bins: 240
+  len_min: 1.5
+  len_max: 30.0
+  ang_bins: 181
+  ang_min: 30.0
+  ang_max: 150.0
+  seed_all_elements: true
+  seed_all_hall: true
+  include_metalloids: true
+
+train:
+  steps: 20000
+  batch: 64
+  lr: 0.0003
+  d_model: 256
+  layers: 6
+  heads: 8
+  dropout: 0.1
+  seed: 7
+  element_emb: features  # token | features
+
+generate:
+  n_max: 200
+  max_sites: 25
+  temperature: 1.0
+  top_k: 0
+  include_metalloids: true
+  autoscale_cell: true
+  prototype_mode: target   # target | random
+
+  # Space-group sampling:
+  # - model: sample HALL_* using the model distribution
+  # - uniform_230: uniform over one representative Hall number per SG (covers all 230 SGs)
+  # - uniform_530: uniform over all Hall numbers (1..530)
+  hall_mode: model
+  fixed_hall: null
+  fixed_spacegroup: null
+
+  # When nelements_total > len(required_elements), extra elements are drawn from this pool.
+  random_pool: intermetallic
+
+  # `genim synth` 可选的“原型元素调色板”：若设为 null，则使用完整 intermetallic 元素池；
+  # 若设为列表，则原型采样会优先在该列表内取元素（仍会做 post-hoc substitution）。
+  prototype_elements: null
+  force_distinct_first_sites: true
+
+  dedup:
+    enabled: true
+    mode: prototype  # full | prototype
+    symprec: 0.01
+    frac_tol: 0.01
+    cell_tol: 0.2
+
+  attempts_factor: 200
+  stop_after_no_new: 2000
+
+validate:
+  min_dist: 1.5
+  symprec: 0.01
+  min_dist_factor: 0.75
+  max_dist_factor: 1.15
+  max_nn_factor: 1.35
+  min_coordination: 3
+  require_connected: true
+  max_atoms: 200
+  vol_per_atom_min: 5.0
+  vol_per_atom_max: 30.0
+
+synth:
+  # 元素比例/占比控制（按 `genim synth --elements` 顺序对齐）。
+  # - ratios: null 表示不做比例约束；否则填写与 elements 等长的列表
+  #   数值表示约束项，X/null 表示该元素必须出现但组成不固定
+  # - 写法示例：
+  #   1) elements=[Ni, Fe, Co, Al], nelements=4, ratios=[1, 1, 1, 1]
+  #      -> 四个已列元素严格按原子数 1:1:1:1
+  #   2) elements=[Ni, Fe, Co, Al], nelements=4, ratio_mode=ratio, ratios=[1, 1, X, X]
+  #      -> Ni/Fe 严格 1:1，Co/Al 必须出现，但占比不固定
+  #   3) elements=[Ni, Fe, Co, Al], nelements=4, ratio_mode=percent, ratios=[25, 25, X, X]
+  #      -> Ni 占 25 at.%、Fe 占 25 at.%，Co/Al 合计占剩余 50 at.%
+  #   4) elements=[Fe, Si], nelements=3, ratio_mode=percent, ratios=[30, 30]
+  #      -> Fe 占 30 at.%、Si 占 30 at.%，第 3 个元素合计 40 at.%
+  # - 默认按 ratio 解释；只有明确写成 percent 时，数值位才按 at.% 解释
+  # - ratio_mode:
+  #   - ratio: 只约束数值位之间的比例；X 位不固定
+  #   - percent: 数值位按总原子百分比解释；X 位与额外元素共同分配剩余百分比
+  #   - 兼容：旧配置里的 auto 仍可读取，但不建议继续使用
+  ratios: null
+  ratio_mode: ratio
+  percent_tol: 0.1
+  allow_supercell_ratio: true
+  max_supercell_copies: 8
+  flexible_prototype_nelements: true
+
+# -------------------------
+# MLIP backend (eSEN/OMAT24 via fairchem-core)
+# -------------------------
+ml:
+  model: eSEN-30M-OAM
+  # Recommended: point to a local OMAT24 checkpoint to avoid HF gating/download.
+  # Example (adspp layout): ..\\adspp\\data\\checkpoints\\eSEN\\esen_30m_oam.pt
+  checkpoint: null
+  device: auto   # auto | cpu | cuda
+  quiet: true
+
+# -------------------------
+# Bulk relaxation for generated structures (ASE)
+# -------------------------
+relax:
+  enabled: true
+  write_relaxed_cif: true
+  relaxed_subdir: relaxed
+
+  optimizer: LBFGS        # FIRE | BFGS | LBFGS | MDMin
+  fmax: 0.05
+  steps: 300
+  maxstep: 0.05
+
+  relax_cell: true
+  cell_filter: expcell    # expcell | unitcell | none
+  hydrostatic_strain: false
+  constant_volume: false
+  scalar_pressure_GPa: 0.0
+  logfile_name: null
+
+# -------------------------
+# ML-based Energy Above Hull (EAH)
+# -------------------------
+hull:
+  enabled: true
+  stable_threshold_eV_per_atom: 0.2
+  cache_dir: output/hull_cache
+  force_rebuild: false
+
+  mp:
+    max_atoms: 80
+    eah_max: 0.5
+    limit_per_subset: 2000
+    max_structures_per_composition: 2
+    per_page: 200
+    timeout: 60.0
+
+  relax:
+    enabled: true
+    optimizer: LBFGS
+    fmax: 0.05
+    steps: 120
+    maxstep: 0.05
+    relax_cell: true
+    cell_filter: expcell
+    hydrostatic_strain: false
+    constant_volume: false
+    scalar_pressure_GPa: 0.0
+
+# -------------------------
+# Scoring output
+# -------------------------
+score:
+  out_dir: null   # null => <cif_dir>/ml_score
+  csv_name: score.csv
+  relaxed_subdir: relaxed

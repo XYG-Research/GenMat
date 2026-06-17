@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "genim"
+version = "0.1.0"
+description = "Generative Intermetallic crystal structure builder (Materials Project + Wyckoff/Transformer baseline)."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "ase>=3.26.0",
+  "matplotlib>=3.7",
+  "numpy>=1.23",
+  "Pillow>=10.0",
+  "pyyaml>=6.0",
+  "requests>=2.31",
+  "spglib>=2.2",
+  "torch>=2.0",
+  "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+# MLIP relax backend (OMAT24 eSEN via fairchem-core)
+mlip = [
+  "fairchem-core",
+  "huggingface-hub",
+]
+# Energy Above Hull (convex hull utilities)
+hull = [
+  "pymatgen",
+  "scipy",
+]
+all = [
+  "fairchem-core",
+  "huggingface-hub",
+  "pymatgen",
+  "scipy",
+]
+
+[project.scripts]
+genim = "genim.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
