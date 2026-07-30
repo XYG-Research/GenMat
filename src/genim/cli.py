@@ -11,6 +11,15 @@ from typing import Any
 
 from ase.data import atomic_numbers
 
+from .backends import (
+    EnsembleGenerator,
+    GenerationCondition,
+    GenIMBackend,
+    MatraBackend,
+    ProposalConfig,
+    inspect_matra_checkpoint,
+    write_ensemble_run,
+)
 from .benchmark import benchmark_cif_dir, write_benchmark_report
 from .checkpoints import load_model_checkpoint
 from .chem import available_elements
@@ -605,6 +614,14 @@ def main(argv: list[str] | None = None) -> int:
     p_ck.add_argument("--ckpt", required=True, type=_p)
     p_ck.add_argument("--expected-sha256", default=None)
 
+    p_matra_ck = sub.add_parser(
+        "matra-checkpoint-info",
+        help="Safely validate and describe a Matra model checkpoint.",
+        allow_abbrev=False,
+    )
+    p_matra_ck.add_argument("--ckpt", required=True, type=_p)
+    p_matra_ck.add_argument("--expected-sha256", default=None)
+
     p_conf = sub.add_parser("conf-init", help="Write a default conf.yml template (all knobs in one place).", allow_abbrev=False)
     p_conf.add_argument("--out", type=_p, default=_p("conf.yml"))
 
@@ -723,6 +740,41 @@ def main(argv: list[str] | None = None) -> int:
     p_gen.add_argument("--include-metalloids", action="store_true")
     p_gen.add_argument("--substitute-elements", nargs="+", default=None, help="Post-hoc substitute the generated species set with these elements (keeps prototype, changes chemistry).")
 
+    p_hybrid = sub.add_parser(
+        "hybrid-generate",
+        help="Generate with GenIM and/or Matra through one validation and deduplication pipeline.",
+        allow_abbrev=False,
+    )
+    p_hybrid.add_argument("--genim-ckpt", type=_p, default=None)
+    p_hybrid.add_argument("--matra-ckpt", type=_p, default=None)
+    p_hybrid.add_argument("--genim-sha256", default=None)
+    p_hybrid.add_argument("--matra-sha256", default=None)
+    p_hybrid.add_argument("--out-dir", required=True, type=_p)
+    p_hybrid.add_argument("--n-per-backend", type=int, default=32)
+    p_hybrid.add_argument("--elements", nargs="+", default=None)
+    p_hybrid.add_argument("--stoichiometry", nargs="+", type=float, default=None)
+    p_hybrid.add_argument("--spacegroup", type=int, default=None)
+    p_hybrid.add_argument("--matra-wyckoff", nargs="+", type=int, default=None)
+    p_hybrid.add_argument("--stability", choices=["any", "stable", "unstable"], default="any")
+    p_hybrid.add_argument("--target-e-hull", type=float, default=None)
+    p_hybrid.add_argument("--device", default="auto")
+    p_hybrid.add_argument("--batch-size", type=int, default=16)
+    p_hybrid.add_argument("--max-sites", type=int, default=25)
+    p_hybrid.add_argument("--min-sites", type=int, default=1)
+    p_hybrid.add_argument("--temperature", type=float, default=0.8)
+    p_hybrid.add_argument("--top-k", type=int, default=0)
+    p_hybrid.add_argument("--seed", type=int, default=7)
+    p_hybrid.add_argument("--forward", type=int, default=150)
+    p_hybrid.add_argument("--decode-jobs", type=int, default=0)
+    p_hybrid.add_argument("--min-dist", type=float, default=0.5)
+    p_hybrid.add_argument("--symprec", type=float, default=1e-2)
+    p_hybrid.add_argument(
+        "--allow-inconsistent-matra",
+        action="store_true",
+        help="Keep Matra structures that pass GenIM validation even when Matra consistency flags fail.",
+    )
+    p_hybrid.add_argument("--overwrite", action="store_true")
+
     p_val = sub.add_parser("validate", help="Validate generated CIFs quickly.", allow_abbrev=False)
     p_val.add_argument("--cif-dir", required=True, type=_p)
     p_val.add_argument("--min-dist", type=float, default=1.5)
@@ -826,6 +878,13 @@ def main(argv: list[str] | None = None) -> int:
                 sort_keys=True,
             )
         )
+        return 0
+    if args.cmd == "matra-checkpoint-info":
+        info = inspect_matra_checkpoint(
+            args.ckpt,
+            expected_sha256=args.expected_sha256,
+        )
+        print(json.dumps(info.to_dict(), indent=2, sort_keys=True))
         return 0
     if args.cmd == "conf-init":
         write_default_config(args.out)
@@ -936,6 +995,68 @@ def main(argv: list[str] | None = None) -> int:
             allowed_elements=args.allowed_elements,
             excluded_elements=args.excluded_elements,
             substitute_elements=args.substitute_elements,
+        )
+        return 0
+    if args.cmd == "hybrid-generate":
+        if args.genim_ckpt is None and args.matra_ckpt is None:
+            raise ValueError("hybrid-generate requires --genim-ckpt and/or --matra-ckpt")
+        condition = GenerationCondition(
+            elements=tuple(args.elements or ()),
+            stoichiometry=tuple(args.stoichiometry or ()),
+            spacegroup_number=args.spacegroup,
+            matra_wyckoff_indices=tuple(args.matra_wyckoff or ()),
+            stability=args.stability,
+            target_e_hull=args.target_e_hull,
+            exact_elements=True,
+        )
+        proposal_config = ProposalConfig(
+            n=int(args.n_per_backend),
+            batch_size=int(args.batch_size),
+            max_sites=int(args.max_sites),
+            min_sites=int(args.min_sites),
+            temperature=float(args.temperature),
+            top_k=int(args.top_k),
+            seed=int(args.seed) if args.seed is not None else None,
+            forward=int(args.forward),
+            decode_jobs=int(args.decode_jobs),
+            require_backend_consistency=not bool(args.allow_inconsistent_matra),
+            validation_options={
+                "min_dist": float(args.min_dist),
+                "symprec": float(args.symprec),
+            },
+        )
+        backends = []
+        if args.genim_ckpt is not None:
+            backends.append(
+                GenIMBackend.from_checkpoint(
+                    args.genim_ckpt,
+                    device=args.device,
+                    expected_sha256=args.genim_sha256,
+                )
+            )
+        if args.matra_ckpt is not None:
+            backends.append(
+                MatraBackend.from_checkpoint(
+                    args.matra_ckpt,
+                    device=args.device,
+                    expected_sha256=args.matra_sha256,
+                )
+            )
+        run = EnsembleGenerator(backends).run(
+            condition=condition,
+            config=proposal_config,
+        )
+        artifacts = write_ensemble_run(run, args.out_dir, overwrite=bool(args.overwrite))
+        print(
+            json.dumps(
+                {
+                    **run.report(),
+                    "manifest": str(artifacts["manifest"]),
+                    "report": str(artifacts["report"]),
+                },
+                indent=2,
+                sort_keys=True,
+            )
         )
         return 0
     if args.cmd == "validate":

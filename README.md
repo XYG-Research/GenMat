@@ -4,7 +4,8 @@
 
 GenIM is a Python package and command-line toolkit for building, generating,
 validating, benchmarking, and screening periodic crystal structures. Version
-0.2 makes the chemistry domain explicit and general-purpose: oxides, nitrides,
+0.3 adds auditable multi-model proposal backends. Version 0.2 made the chemistry
+domain explicit and general-purpose: oxides, nitrides,
 halides, carbides, semiconductors, elemental solids, and intermetallics can use
 the same Hall/Wyckoff generation pipeline.
 
@@ -12,6 +13,21 @@ The representation combines space-group symmetry, Wyckoff sites, discretized
 lattice/coordinate tokens, and a causal Transformer. Generated candidates are
 decoded to ASE `Atoms`, checked geometrically and crystallographically, deduplicated,
 and optionally relaxed/scored with an ML interatomic potential.
+
+## What changed in 0.3
+
+- `ProposalBackend`, `GenerationCondition`, `ProposedStructure`, and
+  `EnsembleGenerator` define a model-neutral proposal and provenance contract.
+- `GenIMBackend` and the optional `MatraBackend` run through the same ASE
+  conversion, validation, condition audit, and cross-model deduplication path.
+- Matra checkpoints are loaded with PyTorch weights-only mode, SHA256
+  verification, schema checks, and exact reconstructed-model weight matching.
+- `genim hybrid-generate` produces accepted CIFs, a complete `candidates.jsonl`
+  audit trail, and a source-aware `ensemble-report.json`.
+- Matra conditioning supports stability, exact elements, stoichiometry, space
+  group, checkpoint-specific Wyckoff indices, and continuous hull targets.
+  Unsupported or scientifically unevaluated constraints remain explicit in
+  every candidate record.
 
 ## What changed in 0.2
 
@@ -59,6 +75,15 @@ python -m pip install -e .
 python -m pip install -e ".[test]"       # tests
 python -m pip install -e ".[hull]"       # hull and surface workflows
 python -m pip install -e ".[all]"        # MLIP + hull extras
+```
+
+Matra is optional and has a separate non-commercial research license. Install
+it explicitly from an approved source; GenIM does not vendor Matra code or
+weights:
+
+```bash
+python -m pip install -e ".[matra]"
+python -m pip install -e ../matra-genoa-preview
 ```
 
 ## Chemistry policies
@@ -176,6 +201,53 @@ The current batch sampler performs one model forward pass per token position for
 all active rows. KV-cache decoding is a future performance optimization; the
 public result/provenance contract does not depend on it.
 
+## Hybrid GenIM + Matra generation
+
+The hybrid interface treats models as independent proposal sources. It does not
+average or concatenate incompatible state dictionaries.
+
+```bash
+genim matra-checkpoint-info \
+  --ckpt ../matra-genoa-preview/checkpoints/matra-v02-med.ckpt \
+  --expected-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa
+
+genim hybrid-generate \
+  --genim-ckpt checkpoints/mp_general.pt \
+  --matra-ckpt ../matra-genoa-preview/checkpoints/matra-v02-med.ckpt \
+  --matra-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa \
+  --elements Na Cl --stoichiometry 1 1 --stability stable \
+  --n-per-backend 64 --seed 7 --out-dir output/hybrid-nacl
+```
+
+Equivalent Python API:
+
+```python
+from genim import (
+    EnsembleGenerator, GenerationCondition, GenIMBackend,
+    MatraBackend, ProposalConfig, write_ensemble_run,
+)
+
+backends = [
+    GenIMBackend.from_checkpoint("checkpoints/mp_general.pt"),
+    MatraBackend.from_checkpoint(
+        "../matra-genoa-preview/checkpoints/matra-v02-med.ckpt",
+        expected_sha256="4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa",
+    ),
+]
+run = EnsembleGenerator(backends).run(
+    condition=GenerationCondition(
+        elements=("Na", "Cl"), stoichiometry=(1, 1), stability="stable",
+    ),
+    config=ProposalConfig(n=64, temperature=0.75, seed=7),
+)
+write_ensemble_run(run, "output/hybrid-nacl")
+```
+
+`accepted` means structurally valid, condition-not-disproved, and unique in the
+run. It is not a claim of thermodynamic stability. Unevaluated stability/hull
+conditions are recorded as `null` and require MLIP/DFT evidence. See
+[Matra integration](docs/MATRA_INTEGRATION.md).
+
 ## Composition-constrained synthesis
 
 `genim synth` reads `conf.yml` and supports exact ratio or atomic-percentage
@@ -239,7 +311,8 @@ python -m pytest -q
 ```
 
 Architecture and compatibility boundaries are documented in
-[Architecture](docs/ARCHITECTURE.md).
+[Architecture](docs/ARCHITECTURE.md). Multi-model scientific and licensing
+boundaries are documented in [Matra integration](docs/MATRA_INTEGRATION.md).
 
 ## References
 

@@ -11,6 +11,7 @@ python -m pip install -e ".[hull,test]"
 python -m pytest -q
 python -m compileall -q src/genim
 genim --help
+genim hybrid-generate --help
 ```
 
 The suite must pass on every supported Python version in CI. No secrets, model
@@ -30,6 +31,25 @@ genim benchmark --cif-dir output/smoke --out output/smoke/benchmark.json
 ```
 
 This is a software smoke test, not a model-quality benchmark.
+
+## Multi-backend acceptance
+
+Unit tests must cover condition translation, optional Matra imports, safe
+checkpoint inspection, pymatgen-to-ASE conversion, backend consistency flags,
+cross-backend deduplication, source-aware summaries, and non-overwriting output.
+
+When the local research-licensed Matra package and checkpoint are available:
+
+```powershell
+python -m pip install -e ..\matra-genoa-preview
+genim matra-checkpoint-info `
+  --ckpt ..\matra-genoa-preview\checkpoints\matra-v02-med.ckpt `
+  --expected-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa
+```
+
+The real-checkpoint smoke test must reconstruct the model without missing or
+unexpected weights and generate at least one candidate through the shared
+validation path. Generated smoke output remains gitignored.
 
 ## Checkpoint acceptance
 
@@ -53,3 +73,9 @@ coverage, and every rejection reason. MLIP or hull claims must name the potentia
 potential checkpoint, relaxation settings, reference construction, and energy
 units. DFT/phonon evidence is required before describing a generated candidate as
 first-principles stable.
+
+For multi-model comparisons, hold the requested conditions and random seeds
+fixed, and report both equal-sample and equal-wall-time results. Report each
+backend separately before the union. Composition/prototype-held-out test
+structures must be deduplicated against every backend's training corpus where
+that corpus is available.

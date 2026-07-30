@@ -1,0 +1,368 @@
+from __future__ import annotations
+
+import gc
+import importlib
+import tempfile
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Iterator
+
+import numpy as np
+import torch
+from ase import Atoms
+
+from ..checkpoints import CheckpointError, resolve_device, safe_torch_load, sha256_file
+from ..structure_format import StructureRecord
+from ..validate import ValidationReport, validate_atoms_report
+from .base import (
+    GenerationCondition,
+    ProposalConfig,
+    ProposedStructure,
+    evaluate_condition,
+)
+
+
+MATRA_REQUIRED_KEYS = frozenset({"state_dict", "vocab"})
+
+
+@dataclass(frozen=True)
+class MatraCheckpointInfo:
+    path: Path
+    sha256: str
+    size_bytes: int
+    matra_version: str
+    config: dict[str, Any]
+    vocab_size: int
+    tensor_count: int
+    parameter_count: int
+
+    def to_dict(self) -> dict[str, Any]:
+        record = asdict(self)
+        record["path"] = str(self.path)
+        return record
+
+
+def _matra_config(blob: dict[str, Any]) -> dict[str, Any]:
+    config = dict(blob.get("config") or {})
+    if not config and isinstance(blob.get("hyper_parameters"), dict):
+        supported = {
+            "num_layers",
+            "d_model",
+            "num_heads",
+            "dff_ratio",
+            "dropout_rate",
+            "embedding",
+            "props",
+            "max_len",
+        }
+        config = {key: value for key, value in blob["hyper_parameters"].items() if key in supported}
+    return {
+        "num_layers": int(config.get("num_layers", 2)),
+        "d_model": int(config.get("d_model", 128)),
+        "num_heads": int(config.get("num_heads", 4)),
+        "dff_ratio": int(config.get("dff_ratio", 1)),
+        "dropout_rate": float(config.get("dropout_rate", 0.1)),
+        "embedding": str(config.get("embedding", "positional")),
+        "props": list(config.get("props", [])),
+        "max_len": int(config.get("max_len", 150)),
+    }
+
+
+def inspect_matra_checkpoint(
+    path: str | Path,
+    *,
+    expected_sha256: str | None = None,
+) -> MatraCheckpointInfo:
+    """Safely inspect a Matra checkpoint without importing or executing Matra."""
+
+    checkpoint_path = Path(path).expanduser().resolve()
+    checksum = sha256_file(checkpoint_path)
+    if expected_sha256 is not None and checksum.lower() != str(expected_sha256).lower():
+        raise CheckpointError(
+            f"SHA256 mismatch for {checkpoint_path.name}: expected {expected_sha256}, got {checksum}"
+        )
+    blob = safe_torch_load(checkpoint_path, map_location="cpu")
+    missing = sorted(MATRA_REQUIRED_KEYS.difference(blob))
+    if missing:
+        raise CheckpointError(f"Matra checkpoint is missing required keys: {', '.join(missing)}")
+    state = blob["state_dict"]
+    vocab = blob["vocab"]
+    if not isinstance(state, dict) or not isinstance(vocab, dict):
+        raise CheckpointError("Matra state_dict and vocab must be mappings")
+    required_tokens = {"PAD", "C*", "STOP", "GLOBALSTOP", "SPACEGROUP", "WYCKOFF", "LATTICE"}
+    absent_tokens = sorted(required_tokens.difference(str(key) for key in vocab))
+    if absent_tokens:
+        raise CheckpointError(f"Matra vocabulary is missing required tokens: {', '.join(absent_tokens)}")
+    tensors = [value for value in state.values() if torch.is_tensor(value)]
+    if not tensors:
+        raise CheckpointError("Matra state_dict contains no tensors")
+    matra_version = blob.get("__matra_version__")
+    info = MatraCheckpointInfo(
+        path=checkpoint_path,
+        sha256=checksum,
+        size_bytes=checkpoint_path.stat().st_size,
+        matra_version="unknown" if matra_version is None else str(matra_version),
+        config=_matra_config(blob),
+        vocab_size=len(vocab),
+        tensor_count=len(tensors),
+        parameter_count=sum(int(value.numel()) for value in tensors),
+    )
+    del blob, state, vocab, tensors
+    gc.collect()
+    return info
+
+
+def _import_matra() -> tuple[type[Any], type[Any]]:
+    try:
+        matra_module = importlib.import_module("matra")
+        vocab_module = importlib.import_module("matra.vocab")
+    except ImportError as exc:
+        raise ImportError(
+            "Matra support is optional. Install the approved Matra source first, for example "
+            "`python -m pip install -e ../matra-genoa-preview`. Matra is licensed for "
+            "non-commercial research, education, evaluation and personal use."
+        ) from exc
+    return matra_module.MatraGenoa, vocab_module.Vocab
+
+
+def _pymatgen_to_ase(structure: Any) -> Atoms:
+    lattice = np.asarray(structure.lattice.matrix, dtype=float)
+    frac = np.asarray(structure.frac_coords, dtype=float)
+    species: list[str] = []
+    for value in structure.species:
+        symbol = getattr(value, "symbol", None)
+        species.append(str(symbol or value))
+    return StructureRecord(lattice=lattice, frac_coords=frac % 1.0, species=species).to_ase()
+
+
+@contextmanager
+def _temporary_random_seed(seed: int | None) -> Iterator[None]:
+    if seed is None:
+        yield
+        return
+    numpy_state = np.random.get_state()
+    torch_state = torch.random.get_rng_state()
+    cuda_states = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+    np.random.seed(int(seed))
+    torch.manual_seed(int(seed))
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(int(seed))
+    try:
+        yield
+    finally:
+        np.random.set_state(numpy_state)
+        torch.random.set_rng_state(torch_state)
+        if cuda_states is not None:
+            torch.cuda.set_rng_state_all(cuda_states)
+
+
+def _slug(value: str) -> str:
+    text = "".join(char.lower() if char.isalnum() else "-" for char in str(value))
+    return "-".join(part for part in text.split("-") if part) or "model"
+
+
+class MatraBackend:
+    """Safe, optional adapter for Matra Genoa inference checkpoints.
+
+    Checkpoints are first loaded with PyTorch's weights-only mode, validated,
+    and then used to construct an uninitialised Matra model. This deliberately
+    bypasses Matra's historical ``weights_only=False`` convenience loader.
+    """
+
+    backend_name = "matra"
+    capabilities = frozenset(
+        {
+            "elements",
+            "stoichiometry",
+            "spacegroup_number",
+            "matra_wyckoff_indices",
+            "stability",
+            "target_e_hull",
+        }
+    )
+
+    def __init__(
+        self,
+        model: Any,
+        *,
+        model_name: str,
+        checkpoint_sha256: str | None,
+        checkpoint_info: MatraCheckpointInfo | None = None,
+    ):
+        self.model = model
+        self.model_name = str(model_name)
+        self.checkpoint_sha256 = checkpoint_sha256
+        self.checkpoint_info = checkpoint_info
+
+    @classmethod
+    def from_model(
+        cls,
+        model: Any,
+        *,
+        model_name: str = "injected-matra",
+        checkpoint_sha256: str | None = None,
+    ) -> "MatraBackend":
+        """Construct an adapter around an injected model (useful for services/tests)."""
+
+        return cls(
+            model,
+            model_name=model_name,
+            checkpoint_sha256=checkpoint_sha256,
+            checkpoint_info=None,
+        )
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        path: str | Path,
+        *,
+        device: str | torch.device = "auto",
+        expected_sha256: str | None = None,
+        model_name: str | None = None,
+        work_dir: str | Path | None = None,
+    ) -> "MatraBackend":
+        checkpoint_path = Path(path).expanduser().resolve()
+        info = inspect_matra_checkpoint(checkpoint_path, expected_sha256=expected_sha256)
+        blob = safe_torch_load(checkpoint_path, map_location="cpu")
+        model_class, vocab_class = _import_matra()
+        config = _matra_config(blob)
+        vocab = vocab_class(token2idx={str(key): int(value) for key, value in blob["vocab"].items()})
+        resolved_work_dir = (
+            Path(work_dir).expanduser().resolve()
+            if work_dir is not None
+            else Path(tempfile.gettempdir()) / "genim-matra"
+        )
+        model = model_class(
+            model_name=None,
+            pretrained=False,
+            verbose=False,
+            work_dir=resolved_work_dir,
+            vocab=vocab,
+            **config,
+        )
+        state = dict(blob["state_dict"])
+        state.pop("class_weight", None)
+        incompatible = model.load_state_dict(state, strict=False)
+        missing = list(getattr(incompatible, "missing_keys", []))
+        unexpected = list(getattr(incompatible, "unexpected_keys", []))
+        if missing or unexpected:
+            raise CheckpointError(
+                "Matra checkpoint weights do not exactly match the reconstructed model: "
+                f"missing={missing}, unexpected={unexpected}"
+            )
+        target = resolve_device(device)
+        model.to(target)
+        model.eval()
+        del blob, state, vocab
+        gc.collect()
+        return cls(
+            model,
+            model_name=model_name or checkpoint_path.stem,
+            checkpoint_sha256=info.sha256,
+            checkpoint_info=info,
+        )
+
+    def propose(
+        self,
+        *,
+        condition: GenerationCondition,
+        config: ProposalConfig,
+    ) -> list[ProposedStructure]:
+        prompt = condition.to_matra_prompt()
+        # Matra's ``condition=None`` means "stable", not unconstrained. Starting
+        # the AMT block allows an actual unconstrained generation when requested.
+        effective_prompt = prompt or "AMT"
+        requested = set(condition.requested_fields())
+        applied = sorted(requested.intersection(self.capabilities))
+        unsupported = sorted(requested.difference(self.capabilities))
+
+        with _temporary_random_seed(config.seed):
+            sequences = self.model.generate(
+                n=int(config.n),
+                forward=int(config.forward),
+                T=float(config.temperature),
+                batch_size=int(config.batch_size),
+                condition=effective_prompt,
+                order=None,
+                n_jobs=0,
+                progress=False,
+            )
+            decoded = self.model.decode(
+                sequences,
+                n_jobs=int(config.decode_jobs),
+                only_valid=False,
+                verbose=False,
+                progress=False,
+            )
+
+        if len(decoded) != len(sequences):
+            raise RuntimeError(
+                f"Matra returned {len(decoded)} decoded results for {len(sequences)} sequences"
+            )
+
+        prefix = f"matra-{_slug(self.model_name)}"
+        proposals: list[ProposedStructure] = []
+        for index, (sequence, result) in enumerate(zip(sequences, decoded)):
+            structure = getattr(result, "structure", None)
+            atoms: Atoms | None = None
+            error: str | None = None
+            if structure is not None:
+                try:
+                    atoms = _pymatgen_to_ase(structure)
+                except Exception as exc:
+                    error = f"matra_conversion:{type(exc).__name__}:{exc}"
+
+            backend_metrics = {
+                "parse_valid": bool(getattr(result, "valid", False)),
+                "bond_consistent": bool(getattr(result, "bond_consistent", False)),
+                "symmetry_consistent": bool(getattr(result, "symm_consistent", False)),
+                "spacegroup_consistent": bool(getattr(result, "spg_consistent", False)),
+                "prompt": effective_prompt,
+            }
+            backend_consistent = all(
+                backend_metrics[key]
+                for key in (
+                    "parse_valid",
+                    "bond_consistent",
+                    "symmetry_consistent",
+                    "spacegroup_consistent",
+                )
+            )
+            if error is None and config.require_backend_consistency and not backend_consistent:
+                error = "matra_consistency"
+
+            if atoms is None:
+                validation = ValidationReport(False, "matra_decode_error", {})
+                if error is None:
+                    error = "matra_decode_error"
+            else:
+                validation = validate_atoms_report(atoms, **config.validation_kwargs())
+
+            proposals.append(
+                ProposedStructure(
+                    candidate_id=f"{prefix}-{index:05d}",
+                    backend=self.backend_name,
+                    model_name=self.model_name,
+                    checkpoint_sha256=self.checkpoint_sha256,
+                    atoms=atoms,
+                    validation=validation,
+                    condition=condition.as_dict(),
+                    condition_checks=evaluate_condition(atoms, validation, condition),
+                    applied_constraints=applied,
+                    unsupported_constraints=unsupported,
+                    sampling=config.as_dict(),
+                    backend_metrics=backend_metrics,
+                    raw_sequence=str(sequence),
+                    error=error,
+                )
+            )
+        return proposals
+
+
+__all__ = [
+    "MATRA_REQUIRED_KEYS",
+    "MatraBackend",
+    "MatraCheckpointInfo",
+    "inspect_matra_checkpoint",
+]

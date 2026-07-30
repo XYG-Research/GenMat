@@ -3,13 +3,27 @@
 [English](README.md) | **简体中文**
 
 GenIM 是一个用于晶体结构构建、生成、验证、基准评测与筛选的 Python
-软件包和命令行工具。0.2 版本不再把化学体系硬编码为金属间化合物：
+软件包和命令行工具。0.3 版本新增了可审计的多模型生成后端；0.2 版本不再把
+化学体系硬编码为金属间化合物：
 氧化物、氮化物、卤化物、碳化物、半导体、元素固体和金属间化合物可以
 共用 Hall/Wyckoff—Transformer 流程。
 
 模型以空间群、Wyckoff 位点、离散晶格参数和坐标为序列表示，生成结果
 解码为 ASE `Atoms`，随后进行几何/对称性检查、去重，并可选择使用 MLIP
 弛豫和 Energy Above Hull 筛选。
+
+## 0.3 版的核心改进
+
+- 新增与模型无关的 `ProposalBackend`、`GenerationCondition`、
+  `ProposedStructure` 和 `EnsembleGenerator` 契约。
+- `GenIMBackend` 和可选 `MatraBackend` 共用 ASE 转换、结构验证、条件审计
+  和跨模型去重流程。
+- Matra checkpoint 使用 PyTorch 权重安全模式、SHA256、结构检查和重建模型
+  权重精确匹配，不调用历史的非安全便捷加载路径。
+- `genim hybrid-generate` 同时输出通过筛选的 CIF、完整 `candidates.jsonl`
+  审计记录和按来源统计的 `ensemble-report.json`。
+- Matra 可按稳定性、精确元素集合、化学计量、空间群、checkpoint 特有
+  Wyckoff 索引和连续凸包目标生成；未支持或无法直接验证的条件会明确写入记录。
 
 ## 0.2 版的核心改进
 
@@ -52,6 +66,14 @@ python -m pip install -e ".[all]"
 ```
 
 要求 Python 3.9 或更高版本。
+
+Matra 是可选后端，并采用独立的非商业科研许可证。GenIM 不捆绑 Matra
+代码或权重，应从获准来源单独安装：
+
+```powershell
+python -m pip install -e ".[matra]"
+python -m pip install -e ..\matra-genoa-preview
+```
 
 ## 化学策略
 
@@ -151,6 +173,51 @@ records = [result.to_record() for result in results]  # 含检查点哈希和验
 当前批量采样器对每个 token 位置只进行一次模型前向计算，服务接口和大批量
 测试可以直接复用。KV cache 是后续性能优化，不影响现有结果与来源记录格式。
 
+## GenIM 与 Matra 联合生成
+
+联合接口把两套模型视为独立候选来源，不拼接或平均不兼容的权重。
+
+```powershell
+genim matra-checkpoint-info `
+  --ckpt ..\matra-genoa-preview\checkpoints\matra-v02-med.ckpt `
+  --expected-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa
+
+genim hybrid-generate `
+  --genim-ckpt checkpoints\mp_general.pt `
+  --matra-ckpt ..\matra-genoa-preview\checkpoints\matra-v02-med.ckpt `
+  --matra-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa `
+  --elements Na Cl --stoichiometry 1 1 --stability stable `
+  --n-per-backend 64 --seed 7 --out-dir output\hybrid-nacl
+```
+
+Python API：
+
+```python
+from genim import (
+    EnsembleGenerator, GenerationCondition, GenIMBackend,
+    MatraBackend, ProposalConfig, write_ensemble_run,
+)
+
+backends = [
+    GenIMBackend.from_checkpoint("checkpoints/mp_general.pt"),
+    MatraBackend.from_checkpoint(
+        "../matra-genoa-preview/checkpoints/matra-v02-med.ckpt",
+        expected_sha256="4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa",
+    ),
+]
+run = EnsembleGenerator(backends).run(
+    condition=GenerationCondition(
+        elements=("Na", "Cl"), stoichiometry=(1, 1), stability="stable",
+    ),
+    config=ProposalConfig(n=64, temperature=0.75, seed=7),
+)
+write_ensemble_run(run, "output/hybrid-nacl")
+```
+
+这里的 `accepted` 只表示结构有效、条件未被证伪且在本次运行中唯一，不代表
+热力学稳定。无法直接评价的稳定性/凸包条件记录为 `null`，仍需 MLIP 或 DFT
+证据。详见 [Matra 集成说明](docs/MATRA_INTEGRATION.md)。
+
 ## 组成约束生成
 
 ```powershell
@@ -203,6 +270,7 @@ python -m pytest -q
 - [科学范围](docs/SCIENTIFIC_SCOPE.md)
 - [检查点格式](docs/CHECKPOINT_FORMAT.md)
 - [架构](docs/ARCHITECTURE.md)
+- [Matra 集成说明](docs/MATRA_INTEGRATION.md)
 
 ## 参考文献
 

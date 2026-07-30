@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "genim"
-version = "0.2.0"
-description = "Symmetry-aware generative crystal structure toolkit for general materials chemistry."
+version = "0.3.0"
+description = "Multi-backend, symmetry-aware crystal generation toolkit for general materials chemistry."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
@@ -30,6 +30,11 @@ mlip = [
 hull = [
   "pymatgen",
   "scipy",
+]
+# Matra itself is installed separately from its approved source because its
+# non-commercial research license differs from GenIM's BSD license.
+matra = [
+  "pymatgen>=2024.1",
 ]
 all = [
   "fairchem-core",

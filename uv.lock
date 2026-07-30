@@ -1504,7 +1504,7 @@ wheels = [
 
 [[package]]
 name = "genim"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "ase", version = "3.26.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -1546,6 +1546,11 @@ hull = [
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
+matra = [
+    { name = "pymatgen", version = "2024.8.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "pymatgen", version = "2025.10.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "pymatgen", version = "2026.3.23", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
 mlip = [
     { name = "fairchem-core", version = "1.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "fairchem-core", version = "2.14.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
@@ -1570,6 +1575,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.0" },
     { name = "pymatgen", marker = "extra == 'all'" },
     { name = "pymatgen", marker = "extra == 'hull'" },
+    { name = "pymatgen", marker = "extra == 'matra'", specifier = ">=2024.1" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.4" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.31" },
@@ -1579,7 +1585,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.0" },
     { name = "tqdm", specifier = ">=4.66" },
 ]
-provides-extras = ["mlip", "hull", "all", "test"]
+provides-extras = ["mlip", "hull", "matra", "all", "test"]
 
 [[package]]
 name = "gitdb"
