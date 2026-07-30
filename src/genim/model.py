@@ -8,7 +8,7 @@ import torch
 from torch import nn
 from ase.data import atomic_masses, atomic_numbers, covalent_radii
 
-from .chem import METALLOIDS
+from .chem import METALLOIDS, NON_METALS
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,48 @@ class ModelConfig:
     n_heads: int = 8
     dropout: float = 0.1
     element_emb: str = "token"  # token | features
+    # Legacy checkpoints omit this field and therefore retain their 4-feature
+    # projection shape. New training uses periodic8.
+    element_feature_set: str = "legacy4"  # legacy4 | periodic8
+
+
+def _period_and_group(z: int) -> tuple[int, int]:
+    """Return conventional period/group numbers from atomic number.
+
+    Lanthanides and actinides use group 3, which is the useful continuous
+    embedding convention here rather than a claim about nomenclature.
+    """
+
+    if z == 1:
+        return 1, 1
+    if z == 2:
+        return 1, 18
+    rows = (
+        (2, 3, 10, (1, 2, 13, 14, 15, 16, 17, 18)),
+        (3, 11, 18, (1, 2, 13, 14, 15, 16, 17, 18)),
+        (4, 19, 36, tuple(range(1, 19))),
+        (5, 37, 54, tuple(range(1, 19))),
+    )
+    for period, lo, hi, groups in rows:
+        if lo <= z <= hi:
+            return period, int(groups[z - lo])
+    if 55 <= z <= 86:
+        if z == 55:
+            return 6, 1
+        if z == 56:
+            return 6, 2
+        if 57 <= z <= 71:
+            return 6, 3
+        return 6, z - 68  # Hf..Rn -> groups 4..18
+    if 87 <= z <= 118:
+        if z == 87:
+            return 7, 1
+        if z == 88:
+            return 7, 2
+        if 89 <= z <= 103:
+            return 7, 3
+        return 7, z - 100  # Rf..Og -> groups 4..18
+    raise ValueError(f"Atomic number out of range: {z}")
 
 
 class CausalTransformerLM(nn.Module):
@@ -41,7 +83,11 @@ class CausalTransformerLM(nn.Module):
             if len(id_to_token) != cfg.vocab_size:
                 raise ValueError("id_to_token length must match vocab_size")
 
-            feat_table = torch.zeros(cfg.vocab_size, 4, dtype=torch.float32)
+            feature_set = str(cfg.element_feature_set or "legacy4").strip().lower()
+            if feature_set not in {"legacy4", "periodic8"}:
+                raise ValueError("element_feature_set must be one of: legacy4, periodic8")
+            feature_dim = 4 if feature_set == "legacy4" else 8
+            feat_table = torch.zeros(cfg.vocab_size, feature_dim, dtype=torch.float32)
             is_elem = torch.zeros(cfg.vocab_size, dtype=torch.bool)
             elem_ids: list[int] = []
 
@@ -59,22 +105,34 @@ class CausalTransformerLM(nn.Module):
                 if not math.isfinite(m):
                     m = 0.0
 
-                feat_table[tid] = torch.tensor(
-                    [
-                        float(z) / 118.0,
-                        float(r) / 3.0,
-                        float(m) / 300.0,
-                        1.0 if sym in METALLOIDS else 0.0,
-                    ],
-                    dtype=torch.float32,
-                )
+                features = [
+                    float(z) / 118.0,
+                    float(r) / 3.0,
+                    float(m) / 300.0,
+                ]
+                if feature_set == "legacy4":
+                    features.append(1.0 if sym in METALLOIDS else 0.0)
+                else:
+                    period, group = _period_and_group(int(z))
+                    is_metalloid = sym in METALLOIDS
+                    is_nonmetal = sym in NON_METALS
+                    features.extend(
+                        [
+                            float(period) / 7.0,
+                            float(group) / 18.0,
+                            0.0 if (is_metalloid or is_nonmetal) else 1.0,
+                            1.0 if is_metalloid else 0.0,
+                            1.0 if is_nonmetal else 0.0,
+                        ]
+                    )
+                feat_table[tid] = torch.tensor(features, dtype=torch.float32)
                 is_elem[tid] = True
                 elem_ids.append(tid)
 
             self.register_buffer("_elem_feat_table", feat_table, persistent=False)
             self.register_buffer("_is_elem", is_elem, persistent=False)
             self.register_buffer("_elem_ids", torch.tensor(elem_ids, dtype=torch.long), persistent=False)
-            self.elem_proj = nn.Linear(4, cfg.d_model, bias=True)
+            self.elem_proj = nn.Linear(feature_dim, cfg.d_model, bias=True)
         else:
             self._elem_feat_table = None
             self._is_elem = None

@@ -1,4 +1,12 @@
-__all__ = ["__version__"]
+from .api import GenIM, GeneratedStructure, SamplingConfig
+from .chem import ChemistryPolicy
 
-__version__ = "0.1.0"
+__all__ = [
+    "ChemistryPolicy",
+    "GenIM",
+    "GeneratedStructure",
+    "SamplingConfig",
+    "__version__",
+]
 
+__version__ = "0.2.0"

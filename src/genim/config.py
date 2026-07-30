@@ -21,8 +21,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "mp_download": {
         "chemsys": None,
         "elements": None,
-        # intermetallic | any
-        "chemistry_filter": "intermetallic",
+        # any | metallic | intermetallic
+        "chemistry_filter": "any",
         # If true: download a balanced dataset across all 230 spacegroups.
         "balance_spacegroups": False,
         "per_spacegroup": 50,
@@ -30,7 +30,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "spacegroup_number": None,
         "max_atoms": 200,
         "eah_max": 1.0,
-        "nelements_min": 2,
+        "nelements_min": 1,
         "nelements_max": 5,
         "limit": 100000,
         "per_page": 500,
@@ -49,7 +49,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "ang_max": 150.0,
         "seed_all_elements": True,
         "seed_all_hall": True,
+        # any | metallic | intermetallic
+        "chemistry_mode": "any",
         "include_metalloids": True,
+        "allowed_elements": None,
+        "excluded_elements": None,
     },
     "train": {
         "steps": 20000,
@@ -60,7 +64,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "heads": 8,
         "dropout": 0.1,
         "seed": 7,
+        "val_fraction": 0.1,
         "element_emb": "features",
+        # legacy4 keeps old checkpoint compatibility; periodic8 adds period,
+        # group and broad chemical-class indicators for newly trained models.
+        "element_feature_set": "periodic8",
     },
     "generate": {
         # Maximum number of structures to emit (acts like --n max)
@@ -68,9 +76,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_sites": 25,
         "temperature": 1.0,
         "top_k": 0,
+        # General-purpose composition policy. Use "intermetallic" to reproduce
+        # the historical GenIM behaviour.
+        "chemistry_mode": "any",
         "include_metalloids": True,
+        "allowed_elements": None,
+        "excluded_elements": None,
         # If true: isotropically rescale the cell to satisfy validate.* bounds before final validation.
-        "autoscale_cell": True,
+        "autoscale_cell": False,
         # Prototype selection strategy for `genim synth`:
         # - target: sample directly in the requested chemistry (recommended; more realistic lengths)
         # - random: sample a random prototype chemistry and substitute to the target (more diverse but less physical)
@@ -80,13 +93,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # If set, overrides hall_mode
         "fixed_hall": None,
         "fixed_spacegroup": None,
-        # If nelements_total > len(required_elements), extra elements are drawn from this pool.
-        # pool: intermetallic (metals + optional metalloids)
-        "random_pool": "intermetallic",
+        # If nelements_total > len(required_elements), extra elements are drawn
+        # from this pool: chemistry | any | metallic | intermetallic.
+        "random_pool": "chemistry",
         # Prototype palette used by `genim synth`: restrict sampling to a small, common element set,
         # then substitute to the target chemistry. This dramatically reduces prototype_nelements_mismatch.
         # If set, `genim synth` can use this palette to condition prototype sampling.
-        # If null/None, the full intermetallic element pool is used.
+        # If null/None, all vocabulary elements allowed by chemistry_mode are used.
         "prototype_elements": None,
         "force_distinct_first_sites": True,
         # Deduplication (hash on standardized cell + rounded frac coords).
@@ -104,21 +117,21 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "stop_after_no_new": 2000,
     },
     "validate": {
-        "min_dist": 1.5,
+        "min_dist": 0.5,
         "symprec": 1e-2,
-        "min_dist_factor": 0.75,
+        "min_dist_factor": 0.55,
         # Reject overly sparse structures: require min(d_ij/(r_i+r_j)) <= max_dist_factor.
-        "max_dist_factor": 1.15,
+        "max_dist_factor": None,
         # Upper-bound neighbor sanity check (reject isolated atoms):
         # require each atom has >= min_coordination neighbors within
         # max_nn_factor * (r_cov(i) + r_cov(j)).
-        "max_nn_factor": 1.35,
-        "min_coordination": 3,
+        "max_nn_factor": 1.5,
+        "min_coordination": 1,
         # Require the neighbor graph to be connected (avoids split clusters in large cells).
-        "require_connected": True,
-        "max_atoms": 200,
-        "vol_per_atom_min": 5.0,
-        "vol_per_atom_max": 30.0,
+        "require_connected": False,
+        "max_atoms": 500,
+        "vol_per_atom_min": 1.0,
+        "vol_per_atom_max": 100.0,
     },
     "synth": {
         # Element ratio control for required elements (aligned with `genim synth --elements` order).

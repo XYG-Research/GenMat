@@ -15,13 +15,13 @@ from ase import Atoms
 from ase.data import atomic_numbers
 from ase.io import read, write
 
-from .chem import IntermetallicFilter, allowed_intermetallic_elements
+from .chem import ChemistryPolicy
+from .checkpoints import load_model_checkpoint
 from .config import SynthRequest, load_config
 from .autoscale import autoscale_cell_isotropic
 from .dedup import atoms_hash
 from .decode import DecodeConfig, decode_tokens_to_atoms
 from .generate import sample_sequence
-from .model import CausalTransformerLM, ModelConfig
 from .validate import validate_atoms
 
 
@@ -470,8 +470,8 @@ def synth_cifs(*, conf_path: Path, req: SynthRequest) -> SynthResult:
 
     required = _validate_element_symbols(req.required_elements)
     nelements_total = int(req.nelements_total)
-    if nelements_total < 2:
-        raise ValueError("--nelements must be >= 2")
+    if nelements_total < 1:
+        raise ValueError("--nelements must be >= 1")
     if nelements_total < len(required):
         raise ValueError("--nelements must be >= number of required elements")
 
@@ -508,21 +508,15 @@ def synth_cifs(*, conf_path: Path, req: SynthRequest) -> SynthResult:
         raise ValueError("synth.max_supercell_copies must be >= 1")
 
     ckpt_path = Path(cfg["paths"]["ckpt"]).expanduser().resolve()
-    try:
-        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    except TypeError:
-        ckpt = torch.load(ckpt_path, map_location="cpu")
-
-    vocab = ckpt["vocab"]
-    id_to_token = ckpt["id_to_token"]
-    pad_id = int(ckpt["pad_id"])
-    model_cfg = ModelConfig(**ckpt["model_config"])
+    loaded = load_model_checkpoint(ckpt_path, device="auto")
+    ckpt = loaded.blob
+    vocab = loaded.vocab
+    id_to_token = loaded.id_to_token
+    pad_id = loaded.pad_id
+    model_cfg = loaded.model_config
     vocab_elems = {t[2:] for t in vocab if t.startswith("E_")}
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = CausalTransformerLM(model_cfg, id_to_token=id_to_token).to(device)
-    model.load_state_dict(ckpt["model_state"])
-    model.eval()
+    device = loaded.device
+    model = loaded.model
 
     tok_cfg = ckpt["tokenize_config"]
     dec_cfg = DecodeConfig(
@@ -638,17 +632,25 @@ def synth_cifs(*, conf_path: Path, req: SynthRequest) -> SynthResult:
             return int(hall_to_id[int(rep_hall_by_sg[sg])])
         raise ValueError(f"Unknown generate.hall_mode: {hall_mode!r}")
 
-    # Element pool for random completion (chemistry is enforced via substitution).
-    elem_filter = IntermetallicFilter(include_metalloids=include_metalloids)
+    chemistry_mode = str(gen.get("chemistry_mode", "any") or "any").strip().lower()
+    chemistry = ChemistryPolicy(
+        mode=chemistry_mode,
+        include_metalloids=include_metalloids,
+        allowed_elements=gen.get("allowed_elements", None),
+        excluded_elements=gen.get("excluded_elements", None),
+        min_elements=max(nelements_total, 2 if chemistry_mode == "intermetallic" else 1),
+        max_elements=nelements_total,
+    )
     for e in required:
-        if not elem_filter.is_allowed_element(e):
-            raise ValueError(f"Required element {e} is not allowed for intermetallics with include_metalloids={include_metalloids}")
+        if not chemistry.is_allowed_element(e):
+            raise ValueError(f"Required element {e} is rejected by generate.chemistry_mode={chemistry.mode!r}")
 
-    pool_mode = str(gen.get("random_pool", "intermetallic") or "intermetallic").strip().lower()
-    if pool_mode != "intermetallic":
-        raise ValueError(f"Unknown generate.random_pool: {pool_mode!r}")
+    pool_mode = str(gen.get("random_pool", "chemistry") or "chemistry").strip().lower()
+    pool_policy = chemistry
+    if pool_mode != "chemistry":
+        pool_policy = ChemistryPolicy(mode=pool_mode, include_metalloids=include_metalloids)
 
-    pool = [e for e in allowed_intermetallic_elements(include_metalloids=include_metalloids) if e not in set(required)]
+    pool = [e for e in pool_policy.available_elements() if e not in set(required) and chemistry.is_allowed_element(e)]
     if nelements_total > len(required) and len(pool) < (nelements_total - len(required)):
         raise ValueError("Element pool is too small to satisfy requested nelements_total")
 
@@ -658,8 +660,8 @@ def synth_cifs(*, conf_path: Path, req: SynthRequest) -> SynthResult:
     if proto_candidates is None:
         proto_pool = [
             sym
-            for sym in allowed_intermetallic_elements(include_metalloids=include_metalloids)
-            if elem_filter.is_allowed_element(sym) and f"E_{sym}" in vocab
+            for sym in chemistry.available_elements()
+            if f"E_{sym}" in vocab
         ]
     elif isinstance(proto_candidates, (list, tuple)):
         proto_pool = []
@@ -667,7 +669,7 @@ def synth_cifs(*, conf_path: Path, req: SynthRequest) -> SynthResult:
             sym = str(s).strip()
             if not sym:
                 continue
-            if not elem_filter.is_allowed_element(sym):
+            if not chemistry.is_allowed_element(sym):
                 continue
             if f"E_{sym}" not in vocab:
                 continue
@@ -784,7 +786,7 @@ def synth_cifs(*, conf_path: Path, req: SynthRequest) -> SynthResult:
             return None
 
         elems = set(a2.get_chemical_symbols())
-        if not elem_filter.is_intermetallic(elems):
+        if not chemistry.accepts_elements(elems):
             return None
         return a2
 
@@ -817,7 +819,7 @@ def synth_cifs(*, conf_path: Path, req: SynthRequest) -> SynthResult:
                 temperature=temperature,
                 top_k=top_k,
                 max_sites=max_sites,
-                min_sites=max(2, len(proto_elements)),
+                min_sites=max(int(chemistry.min_elements), len(proto_elements)),
                 restrict_elements=list(proto_elements),
                 device=device,
                 forced_hall_id=forced_hall_id,

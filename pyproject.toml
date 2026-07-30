@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "genim"
-version = "0.1.0"
-description = "Generative Intermetallic crystal structure builder (Materials Project + Wyckoff/Transformer baseline)."
+version = "0.2.0"
+description = "Symmetry-aware generative crystal structure toolkit for general materials chemistry."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
@@ -37,6 +37,14 @@ all = [
   "pymatgen",
   "scipy",
 ]
+test = [
+  "pytest>=7.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/XYG-Research/GenIM"
+Repository = "https://github.com/XYG-Research/GenIM"
+Issues = "https://github.com/XYG-Research/GenIM/issues"
 
 [project.scripts]
 genim = "genim.cli:main"

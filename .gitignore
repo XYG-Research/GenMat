@@ -38,6 +38,5 @@ tmp_*.py
 tmp_*.txt
 
 # ---- Excluded local-only tooling (not part of the public package) ----
-tests/
 Scripts/
 agmq-main/

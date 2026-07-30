@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ase.build import bulk
 from ase.spacegroup import crystal
 
 from .structure_format import StructureRecord
@@ -77,6 +78,13 @@ def make_examples_jsonl(out_path: Path) -> None:
         )
     )
 
+    # Chemically diverse non-intermetallic structures exercise the universal
+    # vocabulary and prevent the offline smoke test from encoding a metallic-only assumption.
+    examples.append(("NaCl_rocksalt", bulk("NaCl", "rocksalt", a=5.64)))
+    examples.append(("MgO_rocksalt", bulk("MgO", "rocksalt", a=4.21)))
+    examples.append(("Si_diamond", bulk("Si", "diamond", a=5.43)))
+    examples.append(("GaAs_zincblende", bulk("GaAs", "zincblende", a=5.65)))
+
     # Simple hcp-based binary (P63/mmc, 194) with two species on 2c / 2a-like positions
     examples.append(
         (
@@ -93,4 +101,3 @@ def make_examples_jsonl(out_path: Path) -> None:
     with out_path.open("w", encoding="utf-8") as f:
         for name, atoms in examples:
             f.write(json.dumps(_row(name, atoms), ensure_ascii=False) + "\n")
-

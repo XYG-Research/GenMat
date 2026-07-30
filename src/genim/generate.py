@@ -9,8 +9,9 @@ import torch
 from ase.data import atomic_numbers
 from ase.io import read, write
 
-from .chem import IntermetallicFilter, allowed_intermetallic_elements
+from .chem import ChemistryPolicy
 from .autoscale import autoscale_cell_isotropic
+from .checkpoints import load_model_checkpoint
 from .dedup import atoms_hash
 from .decode import DecodeConfig, decode_tokens_to_atoms
 from .model import CausalTransformerLM, ModelConfig
@@ -60,6 +61,7 @@ def _build_groups(vocab: dict[str, int], *, restrict_elements: list[str] | None)
 def _top_k_filter(logits: torch.Tensor, *, k: int) -> torch.Tensor:
     if k <= 0:
         return logits
+    k = min(int(k), int(logits.numel()))
     v, _ = torch.topk(logits, k)
     cutoff = v[-1]
     return torch.where(logits < cutoff, torch.full_like(logits, -1e9), logits)
@@ -176,6 +178,99 @@ def sample_sequence(
     return seq
 
 
+def sample_sequences(
+    model: CausalTransformerLM,
+    *,
+    n: int,
+    vocab: dict[str, int],
+    max_len: int,
+    temperature: float,
+    top_k: int,
+    max_sites: int,
+    min_sites: int = 1,
+    restrict_elements: list[str] | None,
+    device: torch.device,
+    forced_hall_ids: list[int | None] | None = None,
+    forced_ids_by_pos: list[dict[int, int] | None] | None = None,
+) -> list[list[int]]:
+    """Sample multiple grammar-constrained sequences with one forward pass per token.
+
+    This is the batch-inference foundation for service and high-throughput use.
+    It intentionally preserves the exact grammar and sampling rules used by
+    :func:`sample_sequence`.
+    """
+
+    n = int(n)
+    if n < 0:
+        raise ValueError("n must be >= 0")
+    if n == 0:
+        return []
+    if forced_hall_ids is not None and len(forced_hall_ids) != n:
+        raise ValueError("forced_hall_ids must have length n")
+    if forced_ids_by_pos is not None and len(forced_ids_by_pos) != n:
+        raise ValueError("forced_ids_by_pos must have length n")
+
+    pad_id = int(vocab["<PAD>"])
+    bos_id = int(vocab["<BOS>"])
+    eos_id = int(vocab["<EOS>"])
+    groups = _build_groups(vocab, restrict_elements=restrict_elements)
+    if not groups.hall or not groups.length or not groups.angle or not groups.elem or not groups.wyckoff or not groups.coord:
+        raise ValueError("Vocabulary missing required token groups; check preprocess output.")
+    if int(min_sites) < 1:
+        raise ValueError("min_sites must be >= 1")
+    if int(min_sites) > int(max_sites):
+        raise ValueError("min_sites must be <= max_sites")
+
+    forced_rows: list[dict[int, int]] = []
+    for row in range(n):
+        forced = dict(forced_ids_by_pos[row] or {}) if forced_ids_by_pos is not None else {}
+        hall_id = forced_hall_ids[row] if forced_hall_ids is not None else None
+        if hall_id is not None:
+            forced.setdefault(1, int(hall_id))
+        forced_rows.append(forced)
+
+    sequences = [[bos_id] for _ in range(n)]
+    finished = [False] * n
+    for pos in range(1, int(max_len)):
+        active = [row for row in range(n) if not finished[row]]
+        if not active:
+            break
+
+        allowed = _allowed_ids_for_pos(
+            pos,
+            groups=groups,
+            eos_id=eos_id,
+            min_sites=int(min_sites),
+            max_sites=int(max_sites),
+        )
+        need_model = [row for row in active if pos not in forced_rows[row]]
+        row_logits: dict[int, torch.Tensor] = {}
+        if need_model:
+            input_ids = torch.tensor([sequences[row] for row in need_model], dtype=torch.long, device=device)
+            key_padding_mask = input_ids.eq(pad_id)
+            with torch.no_grad():
+                logits = model(input_ids, key_padding_mask=key_padding_mask)[:, -1, :]
+            row_logits = {row: logits[i] for i, row in enumerate(need_model)}
+
+        for row in active:
+            if pos in forced_rows[row]:
+                next_id = int(forced_rows[row][pos])
+                if next_id not in allowed:
+                    raise ValueError(f"Forced token id {next_id} is not allowed at pos={pos}, row={row}")
+            else:
+                next_id = _sample_next_id(
+                    row_logits[row],
+                    allowed=allowed,
+                    temperature=temperature,
+                    top_k=top_k,
+                )
+            sequences[row].append(next_id)
+            if next_id == eos_id:
+                finished[row] = True
+
+    return sequences
+
+
 def generate_cifs(
     *,
     ckpt_path: Path,
@@ -188,18 +283,21 @@ def generate_cifs(
     nelements_min: int,
     nelements_max: int | None,
     include_metalloids: bool,
+    chemistry_mode: str = "any",
+    allowed_elements: list[str] | None = None,
+    excluded_elements: list[str] | None = None,
     substitute_elements: list[str] | None = None,
-    validate_min_dist: float = 1.5,
+    validate_min_dist: float = 0.5,
     validate_symprec: float = 1e-2,
-    validate_min_dist_factor: float | None = 0.75,
+    validate_min_dist_factor: float | None = 0.55,
     validate_max_dist_factor: float | None = None,
-    validate_max_nn_factor: float | None = 1.35,
+    validate_max_nn_factor: float | None = 1.5,
     validate_min_coordination: int | None = 1,
     validate_require_connected: bool | None = None,
     validate_max_atoms: int | None = None,
-    validate_vol_per_atom_min: float | None = 5.0,
-    validate_vol_per_atom_max: float | None = 40.0,
-    autoscale_cell: bool = True,
+    validate_vol_per_atom_min: float | None = 1.0,
+    validate_vol_per_atom_max: float | None = 100.0,
+    autoscale_cell: bool = False,
     dedup_enabled: bool = True,
     dedup_mode: str = "prototype",
     dedup_symprec: float = 1e-2,
@@ -224,19 +322,14 @@ def generate_cifs(
     if stop_after_no_new < 0:
         raise ValueError("stop_after_no_new must be >= 0")
 
-    try:
-        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    except TypeError:
-        ckpt = torch.load(ckpt_path, map_location="cpu")
-    vocab = ckpt["vocab"]
-    id_to_token = ckpt["id_to_token"]
-    pad_id = int(ckpt["pad_id"])
-    model_cfg = ModelConfig(**ckpt["model_config"])
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = CausalTransformerLM(model_cfg, id_to_token=id_to_token).to(device)
-    model.load_state_dict(ckpt["model_state"])
-    model.eval()
+    loaded = load_model_checkpoint(ckpt_path, device="auto")
+    ckpt = loaded.blob
+    vocab = loaded.vocab
+    id_to_token = loaded.id_to_token
+    pad_id = loaded.pad_id
+    model_cfg = loaded.model_config
+    device = loaded.device
+    model = loaded.model
 
     tok_cfg = ckpt["tokenize_config"]
     dec_cfg = DecodeConfig(
@@ -331,7 +424,15 @@ def generate_cifs(
     attempts = 0
     max_attempts = int(n_samples) * int(attempts_factor)
     max_len = int(model_cfg.max_len)
-    elem_filter = IntermetallicFilter(include_metalloids=include_metalloids)
+    policy_mode = str(chemistry_mode or "any").strip().lower()
+    chemistry = ChemistryPolicy(
+        mode=policy_mode,
+        include_metalloids=include_metalloids,
+        allowed_elements=allowed_elements,
+        excluded_elements=excluded_elements,
+        min_elements=max(int(nelements_min), 2 if policy_mode == "intermetallic" else 1),
+        max_elements=nelements_max,
+    )
     rng = random.Random()
     seen: set[str] = set()
     reject: dict[str, int] = {}
@@ -364,7 +465,7 @@ def generate_cifs(
     if substitute_elements is not None and restrict_elements is None:
         target_sorted = sorted(set(substitute_elements), key=lambda s: atomic_numbers.get(s, 999))
         k_sub = int(len(target_sorted))
-        proto_pool = [sym for sym in allowed_intermetallic_elements(include_metalloids=include_metalloids) if f"E_{sym}" in vocab]
+        proto_pool = [sym for sym in chemistry.available_elements() if f"E_{sym}" in vocab]
         if len(proto_pool) < k_sub:
             raise RuntimeError("Prototype element pool too small for substitution; re-run preprocess with --seed-all-elements.")
 
@@ -467,8 +568,8 @@ def generate_cifs(
             continue
 
         elems = set(atoms.get_chemical_symbols())
-        if not elem_filter.is_intermetallic(elems):
-            reject["not_intermetallic"] = reject.get("not_intermetallic", 0) + 1
+        if not chemistry.accepts_elements(elems):
+            reject["chemistry_policy"] = reject.get("chemistry_policy", 0) + 1
             no_new += 1
             if stop_after_no_new and no_new >= int(stop_after_no_new):
                 break

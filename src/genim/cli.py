@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
 import shlex
 import sys
 import traceback as _tb
@@ -10,7 +11,9 @@ from typing import Any
 
 from ase.data import atomic_numbers
 
-from .chem import allowed_intermetallic_elements
+from .benchmark import benchmark_cif_dir, write_benchmark_report
+from .checkpoints import load_model_checkpoint
+from .chem import available_elements
 from .config import DEFAULT_CONFIG, SynthRequest, load_config, write_default_config
 from .examples import make_examples_jsonl
 from .generate import generate_cifs
@@ -177,6 +180,7 @@ def _interactive_menu() -> int:
         ("train", "Train Transformer LM"),
         ("inspect", "Inspect dataset (.jsonl or .pt)"),
         ("validate", "Validate CIFs under a directory"),
+        ("benchmark", "Measure validity, uniqueness, composition and symmetry coverage"),
         ("snapshot-panel", "Render a 6-per-row perspective crystal snapshot panel from CIFs"),
         ("conf-init", "Write default conf.yml template"),
         ("generate", "Low-level sampling (writes CIFs)"),
@@ -228,15 +232,25 @@ def _interactive_menu() -> int:
                 print(f"[interactive] Wrote default config: {conf_path}")
 
             inc_meta = True
+            chemistry_mode = "any"
+            allowed = None
+            excluded = None
             try:
                 gen_sec = cfg.get("generate", {}) if isinstance(cfg, dict) else {}
                 if isinstance(gen_sec, dict):
                     inc_meta = bool(gen_sec.get("include_metalloids", True))
+                    chemistry_mode = str(gen_sec.get("chemistry_mode", "any") or "any")
+                    allowed = gen_sec.get("allowed_elements", None)
+                    excluded = gen_sec.get("excluded_elements", None)
             except Exception:
                 inc_meta = True
 
-            pool_all = allowed_intermetallic_elements(include_metalloids=inc_meta)
-            pool = [s for s in pool_all if int(atomic_numbers.get(s, 999)) <= 84]  # up to Po (metalloid)
+            pool = available_elements(
+                mode=chemistry_mode,
+                include_metalloids=inc_meta,
+                allowed_elements=allowed,
+                excluded_elements=excluded,
+            )
 
             rare: list[str] = []
             t3d: list[str] = []
@@ -258,7 +272,7 @@ def _interactive_menu() -> int:
                 else:
                     main_group.append(sym)
 
-            print(f"[interactive] Available intermetallic elements (include_metalloids={inc_meta})")
+            print(f"[interactive] Available elements (chemistry_mode={chemistry_mode}, n={len(pool)})")
             n_trans = len(t3d) + len(t4d) + len(t5d)
             print(f"[Transition metals: 3d/4d/5d] (n={n_trans})")
             if t3d:
@@ -271,7 +285,7 @@ def _interactive_menu() -> int:
                 print("5d:")
                 _print_symbol_matrix(t5d, ncols=10)
             print("")
-            print(f"[Main-group metals{' + metalloids' if inc_meta else ''}] (n={len(main_group)})")
+            print(f"[Main-group and other elements] (n={len(main_group)})")
             _print_symbol_matrix(main_group, ncols=10)
             print("")
             print(f"[Rare earth metals: Sc/Y/La-Lu] (n={len(rare)})")
@@ -347,7 +361,7 @@ def _interactive_menu() -> int:
                 sec = {}
 
             argv = ["mp-download", "--out", outp]
-            chemistry = sec.get("chemistry_filter", "intermetallic")
+            chemistry = sec.get("chemistry_filter", "any")
             argv += ["--chemistry", str(chemistry)]
             if sec.get("chemsys"):
                 argv += ["--chemsys", str(sec["chemsys"])]
@@ -396,8 +410,13 @@ def _interactive_menu() -> int:
                 argv += ["--seed-all-elements"]
             if bool(sec.get("seed_all_hall", True)):
                 argv += ["--seed-all-hall"]
+            argv += ["--chemistry", str(sec.get("chemistry_mode", "any"))]
             if bool(sec.get("include_metalloids", True)):
                 argv += ["--include-metalloids"]
+            if sec.get("allowed_elements"):
+                argv += ["--allowed-elements", *[str(x) for x in sec["allowed_elements"]]]
+            if sec.get("excluded_elements"):
+                argv += ["--excluded-elements", *[str(x) for x in sec["excluded_elements"]]]
 
             hints = [f"Read JSONL: {inp}", f"Write tokens: {outp}", f"Config source: {conf_path} (preprocess.*)"]
 
@@ -422,7 +441,9 @@ def _interactive_menu() -> int:
             argv += ["--heads", str(int(sec.get("heads", 8)))]
             argv += ["--dropout", str(float(sec.get("dropout", 0.1)))]
             argv += ["--seed", str(int(sec.get("seed", 7)))]
+            argv += ["--val-fraction", str(float(sec.get("val_fraction", 0.1)))]
             argv += ["--element-emb", str(sec.get("element_emb", "features"))]
+            argv += ["--element-feature-set", str(sec.get("element_feature_set", "periodic8"))]
 
             hints = [f"Read tokens: {data_in}", f"Write checkpoint: {out_ckpt}", f"Config source: {conf_path} (train.*)"]
 
@@ -447,6 +468,21 @@ def _interactive_menu() -> int:
                 continue
             argv = ["validate", "--cif-dir", cif_dir]
             hints = [f"Read CIFs: {cif_dir}"]
+
+        elif cmd == "benchmark":
+            suggested = _find_latest_cif_dir(out_base)
+            default_cif_dir = str(suggested) if suggested is not None else ""
+            cif_dir = _prompt_line(f"CIF directory (--cif-dir) [default: {default_cif_dir}]: ").strip()
+            if not cif_dir:
+                cif_dir = default_cif_dir
+            if not cif_dir:
+                print("[interactive] Missing --cif-dir.")
+                print("")
+                continue
+            default_out = str((_p(cif_dir) / "benchmark.json").resolve())
+            outp = _prompt_line(f"Report JSON (--out) [default: {default_out}]: ").strip() or default_out
+            argv = ["benchmark", "--cif-dir", cif_dir, "--out", outp]
+            hints = [f"Read CIFs: {cif_dir}", f"Write benchmark: {outp}"]
 
         elif cmd == "snapshot-panel":
             suggested = _find_latest_cif_dir(out_base)
@@ -565,10 +601,14 @@ def main(argv: list[str] | None = None) -> int:
     p_ins.add_argument("--wyckoff", action="store_true", help="For JSONL: run spglib and report Wyckoff/Hall stats (slower).")
     p_ins.add_argument("--symprec", type=float, default=1e-2)
 
+    p_ck = sub.add_parser("checkpoint-info", help="Validate and describe a GenIM model checkpoint.", allow_abbrev=False)
+    p_ck.add_argument("--ckpt", required=True, type=_p)
+    p_ck.add_argument("--expected-sha256", default=None)
+
     p_conf = sub.add_parser("conf-init", help="Write a default conf.yml template (all knobs in one place).", allow_abbrev=False)
     p_conf.add_argument("--out", type=_p, default=_p("conf.yml"))
 
-    p_syn = sub.add_parser("synth", help="Generate intermetallic CIFs with minimal args (conf.yml-driven).", allow_abbrev=False)
+    p_syn = sub.add_parser("synth", help="Generate crystal structures with minimal args (conf.yml-driven).", allow_abbrev=False)
     p_syn.add_argument("--conf", type=_p, default=_p("conf.yml"))
     p_syn.add_argument("--elements", nargs="+", required=True, help="Required element symbols, e.g. Fe Si")
     p_syn.add_argument("--nelements", type=int, required=True, help="Total distinct element count in the output")
@@ -589,9 +629,9 @@ def main(argv: list[str] | None = None) -> int:
     p_dl.add_argument("--out", required=True, type=_p)
     p_dl.add_argument(
         "--chemistry",
-        choices=["intermetallic", "any"],
-        default="intermetallic",
-        help="Local chemistry filter. 'intermetallic' enforces >=2 allowed elements (metals + optional metalloids). 'any' keeps any chemistry.",
+        choices=["any", "metallic", "intermetallic"],
+        default="any",
+        help="Local composition-domain filter; default 'any' keeps all valid elements.",
     )
     p_dl.add_argument(
         "--elements",
@@ -602,7 +642,7 @@ def main(argv: list[str] | None = None) -> int:
     p_dl.add_argument("--chemsys", default=None, help="Chemical system query like Fe-Ni-Al (server-side filter).")
     p_dl.add_argument("--max-atoms", type=int, default=80)
     p_dl.add_argument("--eah-max", type=float, default=0.25, help="energy_above_hull max (eV/atom) if field available.")
-    p_dl.add_argument("--nelements-min", type=int, default=2)
+    p_dl.add_argument("--nelements-min", type=int, default=1)
     p_dl.add_argument("--nelements-max", type=int, default=4)
     p_dl.add_argument("--limit", type=int, default=5000, help="Max docs to download.")
     p_dl.add_argument("--per-page", type=int, default=200)
@@ -624,9 +664,12 @@ def main(argv: list[str] | None = None) -> int:
     p_pp.add_argument("--ang-bins", type=int, default=181)
     p_pp.add_argument("--ang-min", type=float, default=40.0)
     p_pp.add_argument("--ang-max", type=float, default=140.0)
-    p_pp.add_argument("--seed-all-elements", action="store_true", help="Seed vocab with all metal/metalloid element tokens (for better generalization).")
+    p_pp.add_argument("--seed-all-elements", action="store_true", help="Seed the vocabulary with every element allowed by --chemistry.")
     p_pp.add_argument("--seed-all-hall", action="store_true", help="Seed vocab with all HALL_1..HALL_530 tokens (for broader symmetry coverage).")
-    p_pp.add_argument("--include-metalloids", action="store_true", help="Only affects --seed-all-elements (whether to include metalloids).")
+    p_pp.add_argument("--chemistry", choices=["any", "metallic", "intermetallic"], default="any")
+    p_pp.add_argument("--allowed-elements", nargs="+", default=None, help="Optional exact element allow-list for vocabulary seeding.")
+    p_pp.add_argument("--excluded-elements", nargs="+", default=None, help="Optional element deny-list for vocabulary seeding.")
+    p_pp.add_argument("--include-metalloids", action="store_true", help="Include metalloids in metallic/intermetallic modes.")
 
     p_ss = sub.add_parser("sym-seed", help="Generate synthetic symmetry seed structures (JSONL).", allow_abbrev=False)
     p_ss.add_argument("--out", required=True, type=_p)
@@ -650,7 +693,19 @@ def main(argv: list[str] | None = None) -> int:
     p_tr.add_argument("--heads", type=int, default=8)
     p_tr.add_argument("--dropout", type=float, default=0.1)
     p_tr.add_argument("--element-emb", choices=["token", "features"], default="features", help="How to embed/predict element tokens (generalization vs. capacity tradeoff).")
+    p_tr.add_argument(
+        "--element-feature-set",
+        choices=["legacy4", "periodic8"],
+        default="periodic8",
+        help="Element descriptors for new feature-embedding checkpoints.",
+    )
     p_tr.add_argument("--seed", type=int, default=7)
+    p_tr.add_argument(
+        "--val-fraction",
+        type=float,
+        default=0.1,
+        help="Deterministic random validation fraction (use an external split for extrapolation claims).",
+    )
 
     p_gen = sub.add_parser("generate", help="Sample structures and write CIFs.", allow_abbrev=False)
     p_gen.add_argument("--ckpt", required=True, type=_p)
@@ -660,8 +715,11 @@ def main(argv: list[str] | None = None) -> int:
     p_gen.add_argument("--temperature", type=float, default=1.0)
     p_gen.add_argument("--top-k", type=int, default=0)
     p_gen.add_argument("--elements", nargs="+", default=None, help="Restrict element tokens during sampling.")
-    p_gen.add_argument("--nelements-min", type=int, default=2)
+    p_gen.add_argument("--nelements-min", type=int, default=1)
     p_gen.add_argument("--nelements-max", type=int, default=None)
+    p_gen.add_argument("--chemistry", choices=["any", "metallic", "intermetallic"], default="any")
+    p_gen.add_argument("--allowed-elements", nargs="+", default=None)
+    p_gen.add_argument("--excluded-elements", nargs="+", default=None)
     p_gen.add_argument("--include-metalloids", action="store_true")
     p_gen.add_argument("--substitute-elements", nargs="+", default=None, help="Post-hoc substitute the generated species set with these elements (keeps prototype, changes chemistry).")
 
@@ -669,6 +727,12 @@ def main(argv: list[str] | None = None) -> int:
     p_val.add_argument("--cif-dir", required=True, type=_p)
     p_val.add_argument("--min-dist", type=float, default=1.5)
     p_val.add_argument("--symprec", type=float, default=1e-2)
+
+    p_bench = sub.add_parser("benchmark", help="Benchmark a generated CIF directory.", allow_abbrev=False)
+    p_bench.add_argument("--cif-dir", required=True, type=_p)
+    p_bench.add_argument("--out", required=True, type=_p, help="Output JSON report.")
+    p_bench.add_argument("--min-dist", type=float, default=0.5)
+    p_bench.add_argument("--symprec", type=float, default=1e-2)
 
     p_snap = sub.add_parser("snapshot-panel", help="Render a tiled perspective crystal snapshot panel from CIFs.", allow_abbrev=False)
     p_snap.add_argument("--cif-dir", required=True, type=_p)
@@ -738,6 +802,31 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "inspect":
         inspect_any(args.inp, cfg=InspectConfig(top_k=args.top_k, wyckoff=args.wyckoff, symprec=args.symprec))
         return 0
+    if args.cmd == "checkpoint-info":
+        loaded = load_model_checkpoint(
+            args.ckpt,
+            device="cpu",
+            expected_sha256=args.expected_sha256,
+        )
+        elements = sorted(token[2:] for token in loaded.vocab if token.startswith("E_"))
+        print(
+            json.dumps(
+                {
+                    "name": loaded.path.name,
+                    "size_bytes": loaded.path.stat().st_size,
+                    "sha256": loaded.sha256,
+                    "format_version": loaded.format_version,
+                    "model_config": loaded.model_config.__dict__,
+                    "metadata": loaded.metadata,
+                    "vocab_size": len(loaded.vocab),
+                    "element_count": len(elements),
+                    "elements": elements,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
     if args.cmd == "conf-init":
         write_default_config(args.out)
         print(f"Wrote default config: {args.out}")
@@ -792,7 +881,10 @@ def main(argv: list[str] | None = None) -> int:
             ang_max=args.ang_max,
             seed_all_elements=args.seed_all_elements,
             seed_all_hall=args.seed_all_hall,
+            chemistry_mode=args.chemistry,
             include_metalloids=args.include_metalloids,
+            allowed_elements=args.allowed_elements,
+            excluded_elements=args.excluded_elements,
         )
         return 0
     if args.cmd == "sym-seed":
@@ -824,6 +916,8 @@ def main(argv: list[str] | None = None) -> int:
             dropout=args.dropout,
             element_emb=args.element_emb,
             seed=args.seed,
+            element_feature_set=args.element_feature_set,
+            val_fraction=args.val_fraction,
         )
         return 0
     if args.cmd == "generate":
@@ -838,12 +932,23 @@ def main(argv: list[str] | None = None) -> int:
             nelements_min=args.nelements_min,
             nelements_max=args.nelements_max,
             include_metalloids=args.include_metalloids,
+            chemistry_mode=args.chemistry,
+            allowed_elements=args.allowed_elements,
+            excluded_elements=args.excluded_elements,
             substitute_elements=args.substitute_elements,
         )
         return 0
     if args.cmd == "validate":
         ok = validate_cif_dir(args.cif_dir, min_dist=args.min_dist, symprec=args.symprec)
         return 0 if ok else 2
+    if args.cmd == "benchmark":
+        report = benchmark_cif_dir(args.cif_dir, min_dist=args.min_dist, symprec=args.symprec)
+        out_path = write_benchmark_report(report, args.out)
+        print(
+            f"Benchmark: valid={report.valid}/{report.total_files} "
+            f"unique_valid={report.unique_valid} out={out_path}"
+        )
+        return 0
     if args.cmd == "snapshot-panel":
         from .snapshot_panel import render_snapshot_panel
 

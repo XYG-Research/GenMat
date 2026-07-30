@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +9,13 @@ from ase import Atoms
 from ase.io import read
 from ase.data import covalent_radii
 from ase.neighborlist import NeighborList
+
+
+@dataclass(frozen=True)
+class ValidationReport:
+    valid: bool
+    reason: str
+    metrics: dict[str, float | int | None]
 
 
 def _min_pair_distance(atoms: Atoms) -> float:
@@ -197,18 +205,21 @@ def validate_atoms(
     if vol_per_atom_max is not None and vpa > float(vol_per_atom_max):
         return False, f"vol_per_atom>{float(vol_per_atom_max)}"
 
-    md = _min_pair_distance(atoms)
-    if not np.isfinite(md) or md < float(min_dist):
-        return False, f"min_dist<{min_dist}"
+    # Pair-distance metrics are undefined, not failed, for a one-atom
+    # primitive cell. Periodic-image coordination can still be checked below.
+    if n_atoms >= 2:
+        md = _min_pair_distance(atoms)
+        if not np.isfinite(md) or md < float(min_dist):
+            return False, f"min_dist<{min_dist}"
 
-    if min_dist_factor is not None or max_dist_factor is not None:
-        mdr = _min_pair_distance_ratio(atoms)
-        if not np.isfinite(mdr):
-            return False, "min_dist_factor_nan"
-        if min_dist_factor is not None and mdr < float(min_dist_factor):
-            return False, f"min_dist_factor<{float(min_dist_factor)}"
-        if max_dist_factor is not None and mdr > float(max_dist_factor):
-            return False, f"min_dist_factor>{float(max_dist_factor)}"
+        if min_dist_factor is not None or max_dist_factor is not None:
+            mdr = _min_pair_distance_ratio(atoms)
+            if not np.isfinite(mdr):
+                return False, "min_dist_factor_nan"
+            if min_dist_factor is not None and mdr < float(min_dist_factor):
+                return False, f"min_dist_factor<{float(min_dist_factor)}"
+            if max_dist_factor is not None and mdr > float(max_dist_factor):
+                return False, f"min_dist_factor>{float(max_dist_factor)}"
 
     if max_nn_factor is not None and min_coordination is not None:
         try:
@@ -242,6 +253,42 @@ def validate_atoms(
         return False, "bad_spacegroup"
 
     return True, "ok"
+
+
+def validate_atoms_report(atoms: Atoms, **kwargs) -> ValidationReport:
+    """Validate a structure and return auditable metrics with the decision."""
+
+    valid, reason = validate_atoms(atoms, **kwargs)
+    volume = float(atoms.get_volume()) if len(atoms) else float("nan")
+    n_atoms = int(len(atoms))
+    min_distance = _min_pair_distance(atoms) if n_atoms else float("nan")
+    min_distance_ratio = _min_pair_distance_ratio(atoms) if n_atoms else float("nan")
+    spacegroup: int | None = None
+    try:
+        dataset = spglib.get_symmetry_dataset(
+            _atoms_to_spglib_cell(atoms),
+            symprec=float(kwargs.get("symprec", 1e-2)),
+        )
+        if dataset is not None:
+            spacegroup = int(getattr(dataset, "number") if hasattr(dataset, "number") else dataset["number"])
+    except Exception:
+        pass
+
+    def _finite(value: float) -> float | None:
+        return float(value) if np.isfinite(value) else None
+
+    return ValidationReport(
+        valid=bool(valid),
+        reason=str(reason),
+        metrics={
+            "n_atoms": n_atoms,
+            "volume": _finite(volume),
+            "volume_per_atom": _finite(volume / n_atoms) if n_atoms else None,
+            "min_pair_distance": _finite(min_distance),
+            "min_covalent_distance_ratio": _finite(min_distance_ratio),
+            "spacegroup_number": spacegroup,
+        },
+    )
 
 
 def validate_cif_dir(cif_dir: Path, *, min_dist: float, symprec: float) -> bool:
