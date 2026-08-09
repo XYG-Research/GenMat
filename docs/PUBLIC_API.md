@@ -9,6 +9,8 @@ GenIM's canonical multi-backend vocabulary is intentionally model-neutral:
 | backend contract | `GenerationBackend` | a checkpoint-backed or explicitly algorithmic candidate generator |
 | backend declaration | `BackendCapabilities` | how each requested constraint is applied |
 | one result | `GeneratedCandidate` | decoded structure, provenance, validation, evidence and selection state |
+| one property | `ScientificObservable` | value, units, scientific role, method, source, uncertainty and validation state |
+| optional evidence stage | `ScientificEvaluator` | independent relaxation, energy, hull, DFT, phonon, or domain-specific evidence |
 | multi-model run | `EnsembleGenerator` | validation and deduplication across independent backends |
 
 The older GenIM 0.3 names `GenerationCondition`, `ProposalConfig`,
@@ -42,14 +44,20 @@ stable.
 
 `GeneratedCandidate.to_record()` emits both the canonical fields and legacy
 compatibility fields. New consumers should read `selected`, `selection_reason`,
-`constraint_status`, `constraint_assessments`, and `backend_capabilities` from
-the schema-version-2 report.
+`constraint_status`, `constraint_assessments`, `scientific_observables`,
+`ranking`, and `backend_capabilities` from the schema-version-3 report.
+
+Each observable has a role: `conditioning_target`, `model_emission`,
+`postprocessed_estimate`, or `calculated`. Only independently validated
+observables may upgrade a stability or hull constraint from `not_evaluated`.
+The schema therefore preserves useful Matra energy information without
+asserting an unsupported thermodynamic interpretation.
 
 ## Service facade and HTTP API
 
 `GeneratorService` is the canonical application boundary. It accepts a plain
 mapping, normalizes formula or element/stoichiometry input, selects configured
-backends, and returns schema version 2. Request defaults are:
+backends, and returns schema version 3. Request defaults are:
 
 ```json
 {
@@ -61,8 +69,9 @@ backends, and returns schema version 2. Request defaults are:
 }
 ```
 
-`auto` prefers an available Matra or GenIM checkpoint and otherwise selects the
-non-ML `AlgorithmicSeedBackend`. Explicit `matra` or `genim` requests fail when
-that backend is unavailable. Install `genim[api]` and run `genim serve` (or
+`auto` prefers an available local Matra or GenIM checkpoint, then an Alexandria
+remote backend when `GENIM_ENABLE_ALEXANDRIA=1`, and otherwise selects the
+non-ML `AlgorithmicSeedBackend`. Explicit unavailable checkpoint requests fail.
+Install `genim[api]` and run `genim serve` (or
 `genim-api`) for `/v1/health`, `/v1/capabilities`, `/v1/generate`, and OpenAPI
 documentation at `/docs`.

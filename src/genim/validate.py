@@ -19,24 +19,11 @@ class ValidationReport:
 
 
 def _min_pair_distance(atoms: Atoms) -> float:
-    pos = np.asarray(atoms.get_scaled_positions(wrap=True), dtype=float)
-    cell = np.asarray(atoms.cell.array, dtype=float)
-    n = pos.shape[0]
+    n = len(atoms)
     if n < 2:
         return float("inf")
-
-    # O(N^2) is fine for typical generated cell sizes.
-    min_d = float("inf")
-    for i in range(n):
-        dp = pos[i + 1 :] - pos[i]
-        dp -= np.round(dp)  # MIC in fractional coords
-        dr = dp @ cell
-        d = np.sqrt(np.sum(dr * dr, axis=1))
-        if d.size:
-            m = float(d.min())
-            if m < min_d:
-                min_d = m
-    return float(min_d)
+    distances = np.asarray(atoms.get_all_distances(mic=True), dtype=float)
+    return float(np.min(distances[np.triu_indices(n, k=1)]))
 
 
 def _min_pair_distance_ratio(atoms: Atoms) -> float:
@@ -46,10 +33,8 @@ def _min_pair_distance_ratio(atoms: Atoms) -> float:
     This is a chemistry-aware sanity check that helps reject unphysical overlaps
     even when an absolute min_dist is too permissive for some element pairs.
     """
-    pos = np.asarray(atoms.get_scaled_positions(wrap=True), dtype=float)
-    cell = np.asarray(atoms.cell.array, dtype=float)
     nums = np.asarray(atoms.get_atomic_numbers(), dtype=int)
-    n = pos.shape[0]
+    n = len(atoms)
     if n < 2:
         return float("inf")
 
@@ -62,27 +47,28 @@ def _min_pair_distance_ratio(atoms: Atoms) -> float:
             if np.isfinite(rv) and rv > 0:
                 r[z] = rv
 
-    min_ratio = float("inf")
-    for i in range(n):
-        dp = pos[i + 1 :] - pos[i]
-        dp -= np.round(dp)  # MIC in fractional coords
-        dr = dp @ cell
-        d = np.sqrt(np.sum(dr * dr, axis=1))
-        if not d.size:
-            continue
-        ri = float(r[int(nums[i])])
-        if ri <= 0:
-            continue
-        rj = r[nums[i + 1 :]]
-        denom = ri + rj
-        ok = denom > 0
-        if not np.any(ok):
-            continue
-        ratio = d[ok] / denom[ok]
-        m = float(np.min(ratio))
-        if m < min_ratio:
-            min_ratio = m
-    return float(min_ratio)
+    distances = np.asarray(atoms.get_all_distances(mic=True), dtype=float)
+    radii = r[nums]
+    denominators = radii[:, None] + radii[None, :]
+    upper = np.triu_indices(n, k=1)
+    ok = denominators[upper] > 0
+    if not np.any(ok):
+        return float("inf")
+    return float(np.min(distances[upper][ok] / denominators[upper][ok]))
+
+
+def _covalent_packing_fraction(atoms: Atoms) -> float:
+    volume = float(atoms.get_volume())
+    if not np.isfinite(volume) or volume <= 0:
+        return float("nan")
+    radii = [
+        float(covalent_radii[number])
+        if 0 <= int(number) < len(covalent_radii)
+        else 0.0
+        for number in atoms.get_atomic_numbers()
+    ]
+    sphere_volume = sum((4.0 / 3.0) * np.pi * radius**3 for radius in radii if radius > 0)
+    return float(sphere_volume / volume)
 
 
 def _atoms_to_spglib_cell(atoms: Atoms):
@@ -263,6 +249,20 @@ def validate_atoms_report(atoms: Atoms, **kwargs) -> ValidationReport:
     n_atoms = int(len(atoms))
     min_distance = _min_pair_distance(atoms) if n_atoms else float("nan")
     min_distance_ratio = _min_pair_distance_ratio(atoms) if n_atoms else float("nan")
+    packing_fraction = _covalent_packing_fraction(atoms) if n_atoms else float("nan")
+    min_coordination: int | None = None
+    connected: bool | None = None
+    max_nn_factor = kwargs.get("max_nn_factor")
+    if max_nn_factor is not None and n_atoms:
+        try:
+            min_coordination = _min_coordination_within_factor(
+                atoms, max_nn_factor=float(max_nn_factor)
+            )
+            connected = _is_connected_within_factor(
+                atoms, max_nn_factor=float(max_nn_factor)
+            )
+        except Exception:
+            pass
     spacegroup: int | None = None
     try:
         dataset = spglib.get_symmetry_dataset(
@@ -286,6 +286,9 @@ def validate_atoms_report(atoms: Atoms, **kwargs) -> ValidationReport:
             "volume_per_atom": _finite(volume / n_atoms) if n_atoms else None,
             "min_pair_distance": _finite(min_distance),
             "min_covalent_distance_ratio": _finite(min_distance_ratio),
+            "covalent_packing_fraction": _finite(packing_fraction),
+            "min_coordination": min_coordination,
+            "connected": connected,
             "spacegroup_number": spacegroup,
         },
     )

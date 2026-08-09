@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import importlib
+import re
 import tempfile
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -21,6 +22,8 @@ from .base import (
     GeneratedCandidate,
     GenerationConstraints,
     GenerationSettings,
+    ObservableRole,
+    ScientificObservable,
     evaluate_constraints,
 )
 
@@ -203,6 +206,97 @@ def _slug(value: str) -> str:
     return "-".join(part for part in text.split("-") if part) or "model"
 
 
+_MATRA_OBSERVABLE_NAMES = {
+    "EHULL": ("energy_above_hull", "eV/atom"),
+    "EHULL_DISC": ("stability_class", None),
+}
+
+
+def _matra_blocks(sequence: str) -> dict[str, list[str]]:
+    blocks: dict[str, list[str]] = {}
+    for chunk in re.split(r"\s+STOP\s+", str(sequence).strip()):
+        tokens = chunk.split()
+        if tokens:
+            blocks[tokens[0].upper()] = tokens[1:]
+    return blocks
+
+
+def _parse_matra_value(name: str, tokens: list[str]) -> float | int | str | bool | None:
+    if not tokens:
+        return None
+    token = tokens[0]
+    if name == "EHULL_DISC":
+        label = token.upper()
+        if label == "EH0":
+            return "below_0.075_eV_per_atom"
+        if label == "EH1":
+            return "at_or_above_0.075_eV_per_atom"
+        return token
+    numeric = token[2:] if token.startswith("C*") else token
+    try:
+        value = float(numeric)
+    except ValueError:
+        return token
+    return value if np.isfinite(value) else None
+
+
+def extract_matra_observables(
+    sequence: str,
+    *,
+    prompt: str,
+    properties: list[str],
+    model_name: str,
+    checkpoint_sha256: str | None,
+) -> list[ScientificObservable]:
+    """Extract checkpoint property blocks without promoting them to calculations."""
+
+    sequence_blocks = _matra_blocks(sequence)
+    prompt_blocks = _matra_blocks(prompt)
+    observables: list[ScientificObservable] = []
+    for raw_name in properties:
+        block_name = str(raw_name).strip().upper()
+        if block_name not in sequence_blocks:
+            continue
+        value = _parse_matra_value(block_name, sequence_blocks[block_name])
+        if value is None:
+            continue
+        public_name, unit = _MATRA_OBSERVABLE_NAMES.get(
+            block_name,
+            (block_name.lower(), None),
+        )
+        conditioned = block_name in prompt_blocks
+        observables.append(
+            ScientificObservable(
+                name=public_name,
+                value=value,
+                unit=unit,
+                role=(
+                    ObservableRole.CONDITIONING_TARGET
+                    if conditioned
+                    else ObservableRole.MODEL_EMISSION
+                ),
+                method=(
+                    "matra.prompt_property_block"
+                    if conditioned
+                    else "matra.autoregressive_property_block"
+                ),
+                evidence_level="L0",
+                source=f"matra_sequence.{block_name}",
+                model_name=model_name,
+                checkpoint_sha256=checkpoint_sha256,
+                independently_validated=False,
+                detail=(
+                    "Conditioning target copied into the generated sequence; it is not an "
+                    "independent energy calculation."
+                    if conditioned
+                    else "Property token emitted by Matra Genoa; validate with a named "
+                    "energy model and compatible reference set before making a stability claim."
+                ),
+            )
+        )
+    return observables
+
+
 class MatraBackend:
     """Safe, optional adapter for Matra Genoa inference checkpoints.
 
@@ -227,8 +321,13 @@ class MatraBackend:
         self.model_name = str(model_name)
         self.checkpoint_sha256 = checkpoint_sha256
         self.checkpoint_info = checkpoint_info
+        self.property_names = (
+            list(checkpoint_info.config.get("props", []))
+            if checkpoint_info is not None
+            else list(getattr(model, "config", {}).get("props", []) or [])
+        )
         self.capabilities = capabilities or _capabilities_from_props(
-            list(getattr(model, "props", []) or []),
+            self.property_names,
             assumed=True,
         )
 
@@ -362,6 +461,16 @@ class MatraBackend:
                 "spacegroup_consistent": bool(getattr(result, "spg_consistent", False)),
                 "prompt": effective_prompt,
             }
+            observables = extract_matra_observables(
+                str(sequence),
+                prompt=effective_prompt,
+                properties=self.property_names,
+                model_name=self.model_name,
+                checkpoint_sha256=self.checkpoint_sha256,
+            )
+            backend_metrics["property_blocks"] = [
+                observable.source.rsplit(".", 1)[-1] for observable in observables
+            ]
             backend_consistent = all(
                 backend_metrics[key]
                 for key in (
@@ -398,6 +507,7 @@ class MatraBackend:
                     unsupported_constraints=unsupported,
                     sampling=config.as_dict(),
                     constraint_assessments=assessments,
+                    scientific_observables=observables,
                     backend_metrics=backend_metrics,
                     raw_sequence=str(sequence),
                     error=error,
@@ -410,5 +520,6 @@ __all__ = [
     "MATRA_REQUIRED_KEYS",
     "MatraBackend",
     "MatraCheckpointInfo",
+    "extract_matra_observables",
     "inspect_matra_checkpoint",
 ]

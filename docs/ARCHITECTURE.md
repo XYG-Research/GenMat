@@ -12,12 +12,12 @@ Materials Project / JSONL / examples
               v
  Transformer training -> versioned GenIM checkpoint
               |
-              +----------------------+----------------------+
-              |                      |                      |
-              v                      v                      v
-   AlgorithmicSeedBackend      GenIMBackend          MatraBackend (optional)
-              |                      |                      |
-              +----------- GenerationBackend -------------+
+              +----------------------+----------------------+----------------+
+              |                      |                      |                |
+              v                      v                      v                v
+   AlgorithmicSeedBackend      GenIMBackend          MatraBackend   AlexandriaMatraBackend
+              |                      |                      |                |
+              +---------------- GenerationBackend -------------------------+
                          |
                          v
             GeneratedCandidate + provenance
@@ -26,12 +26,15 @@ Materials Project / JSONL / examples
             ASE conversion + shared validation
                          |
                          v
-  constraint evidence + cross-backend deduplication
+ observables/evaluators + constraint evidence + cross-backend deduplication
+                         |
+                         v
+          transparent scientific triage ranking
                          |
               +----------+-----------+
               |          |           |
               v          v           v
-       HTTP/schema v2  benchmark JSON  MLIP/hull  surface screening
+       HTTP/schema v3  benchmark JSON  MLIP/hull  surface screening
 ```
 
 ## Stable boundaries
@@ -46,12 +49,16 @@ Materials Project / JSONL / examples
   capability declarations, candidate records, and three-state evidence.
 - `backends/genim.py`: adapter from the existing public GenIM API.
 - `backends/matra.py`: optional, safely loaded Matra inference adapter.
+- `backends/alexandria.py`: optional public Matra/Alexandria generation and
+  relaxation adapter with conservative energy semantics.
 - `backends/seed.py`: always-available, composition-exact starting-geometry
   construction without a learned-model claim.
+- `backends/ranking.py`: deterministic, component-wise scientific triage rank;
+  this is a scheduling aid, not a stability classifier.
 - `backends/ensemble.py`: shared cross-backend validation, deduplication,
-  source-aware summaries, CIF and JSONL audit output.
+  optional scientific evaluators, source-aware summaries, CIF and JSONL audit output.
 - `service.py`: framework-neutral request parsing, backend discovery/selection,
-  default settings, and schema-version-2 response assembly.
+  default settings, and schema-version-3 response assembly.
 - `server.py`: optional FastAPI transport (`/v1/health`,
   `/v1/capabilities`, `/v1/generate`).
 - `commands/`: composable CLI registrations and handlers extracted from the
@@ -84,8 +91,15 @@ is deliberately separate from per-candidate evidence. Matra conditioning and a
 GenIM token mask are generation mechanisms; decoded-structure checks, MLIP,
 convex-hull, DFT, and phonons provide progressively stronger evidence.
 
+`ScientificObservable` separates four roles: `conditioning_target`,
+`model_emission`, `postprocessed_estimate`, and `calculated`. Only an
+independently validated calculated `energy_above_hull` can satisfy or violate a
+stability/hull constraint. Remote energies with undisclosed calculators or
+reference zeros remain postprocessed estimates even when numerically precise.
+
 The HTTP service defaults to `backend="auto"`. It prefers a configured Matra
-or GenIM checkpoint and otherwise uses `AlgorithmicSeedBackend`. An explicit
+or GenIM checkpoint, then an explicitly enabled Alexandria remote backend, and
+otherwise uses `AlgorithmicSeedBackend`. An explicit
 request for an unavailable checkpoint backend fails rather than being silently
 relabelled as a model prediction. The service layer is the canonical integration
 boundary for the visual application; the older checkpoint-specific `api.py`

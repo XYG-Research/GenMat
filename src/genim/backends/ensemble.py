@@ -14,8 +14,11 @@ from .base import (
     GenerationBackend,
     GenerationConstraints,
     GenerationSettings,
+    ScientificEvaluator,
     normalise_backend_capabilities,
+    reconcile_observable_constraints,
 )
+from .ranking import RANKING_METHOD, rank_candidates
 
 
 @dataclass(frozen=True)
@@ -62,7 +65,7 @@ class EnsembleRun:
         valid = [candidate for candidate in self.candidates if candidate.valid]
         unique_valid = [candidate for candidate in valid if candidate.duplicate_of is None]
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "condition": self.condition.as_dict(),
             "total": len(self.candidates),
             "valid": len(valid),
@@ -81,6 +84,14 @@ class EnsembleRun:
                 "not_evaluated": sum(
                     candidate.constraint_status.value == "not_evaluated"
                     for candidate in self.candidates
+                ),
+            },
+            "ranking": {
+                "method": RANKING_METHOD,
+                "top_candidate_id": (
+                    min(self.selected, key=lambda candidate: candidate.rank or 10**9).candidate_id
+                    if self.selected
+                    else None
                 ),
             },
             "backend_capabilities": dict(sorted(self.backend_capabilities.items())),
@@ -115,6 +126,7 @@ class EnsembleGenerator:
         dedup_symprec: float = 1e-2,
         dedup_frac_tol: float = 1e-2,
         dedup_cell_tol: float = 2e-1,
+        evaluators: Iterable[ScientificEvaluator] = (),
     ):
         self.backends = list(backends)
         if not self.backends:
@@ -125,6 +137,7 @@ class EnsembleGenerator:
         self.dedup_symprec = float(dedup_symprec)
         self.dedup_frac_tol = float(dedup_frac_tol)
         self.dedup_cell_tol = float(dedup_cell_tol)
+        self.evaluators = list(evaluators)
 
     def run(
         self,
@@ -173,6 +186,19 @@ class EnsembleGenerator:
             for _, candidate in group:
                 if candidate is not representative:
                     candidate.duplicate_of = representative.candidate_id
+
+        for candidate in candidates:
+            if not candidate.valid or candidate.duplicate_of is not None:
+                continue
+            for evaluator in self.evaluators:
+                try:
+                    candidate.scientific_observables.extend(evaluator.evaluate(candidate))
+                except Exception as exc:
+                    errors = candidate.backend_metrics.setdefault("evaluator_errors", {})
+                    errors[str(evaluator.evaluator_name)] = f"{type(exc).__name__}: {exc}"
+            reconcile_observable_constraints(candidate)
+
+        rank_candidates(candidates)
 
         summaries: dict[str, BackendSummary] = {}
         for backend in self.backends:

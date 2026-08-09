@@ -24,7 +24,7 @@ def create_app(
     runtime = service or GeneratorService(config or ServiceConfig.from_env())
     app = FastAPI(
         title="GenIM Generation API",
-        version="0.3.0",
+        version="0.4.0",
         description=(
             "Auditable crystal hypothesis generation with algorithmic, GenIM, "
             "Matra, and ensemble backends."
@@ -43,7 +43,7 @@ def create_app(
     def index() -> dict[str, Any]:
         return {
             "name": "GenIM Generation API",
-            "version": "0.3.0",
+            "version": "0.4.0",
             "health": "/v1/health",
             "capabilities": "/v1/capabilities",
             "generate": "/v1/generate",
@@ -89,4 +89,3 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = ["create_app", "main"]
-

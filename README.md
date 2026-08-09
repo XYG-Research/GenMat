@@ -3,8 +3,10 @@
 **English** | [简体中文](README.zh-CN.md)
 
 GenIM is a Python package and command-line toolkit for building, generating,
-validating, benchmarking, and screening periodic crystal structures. Version
-0.3 adds auditable multi-model proposal backends. Version 0.2 made the chemistry
+validating, ranking, benchmarking, and screening periodic crystal structures.
+Version 0.4 adds evidence-aware Matra/Alexandria observables, chemistry-aware
+seed geometry, and deterministic scientific triage. Version 0.3 added auditable
+multi-model proposal backends. Version 0.2 made the chemistry
 domain explicit and general-purpose: oxides, nitrides,
 halides, carbides, semiconductors, elemental solids, and intermetallics can use
 the same Hall/Wyckoff generation pipeline.
@@ -13,6 +15,24 @@ The representation combines space-group symmetry, Wyckoff sites, discretized
 lattice/coordinate tokens, and a causal Transformer. Generated candidates are
 decoded to ASE `Atoms`, checked geometrically and crystallographically, deduplicated,
 and optionally relaxed/scored with an ML interatomic potential.
+
+## What changed in 0.4
+
+- Matra `EHULL`/`EHULL_DISC` sequence blocks are preserved as auditable
+  conditioning targets or model emissions, never silently promoted to computed
+  thermodynamic evidence.
+- `AlexandriaMatraBackend` integrates the public Matra generation/relaxation
+  endpoint and preserves its reported energy as `relaxed_energy_per_atom` with
+  source and evidence metadata. It is not relabelled as DFT, formation energy,
+  or energy above hull because the public response does not expose that basis.
+- `ScientificObservable` distinguishes conditioning targets, model emissions,
+  postprocessed estimates, and independently calculated values. Optional
+  `ScientificEvaluator` stages can add MLIP, hull, DFT, phonon, or other evidence.
+- The non-ML fallback now constructs cells and sites from covalent radii,
+  packing bounds, periodic minimum-image distances, and farthest-point sampling.
+- Every selected candidate receives a transparent schema-v3 triage rank based
+  on software validity, geometry, constraint evidence, backend consistency, and
+  observable evidence. Rank is not a stability or synthesizability claim.
 
 ## What changed in 0.3
 
@@ -25,7 +45,7 @@ and optionally relaxed/scored with an ML interatomic potential.
   composition-exact default when no compatible checkpoint is configured,
   without presenting the result as a learned-model prediction.
 - The optional HTTP API exposes `/v1/health`, `/v1/capabilities`, and
-  `/v1/generate` with the same schema-version-2 candidate records used by Python.
+  `/v1/generate` with the same candidate records used by Python.
 - Matra checkpoints are loaded with PyTorch weights-only mode, SHA256
   verification, schema checks, and exact reconstructed-model weight matching.
 - `genim generate-ensemble` produces selected CIFs, a complete `candidates.jsonl`
@@ -175,8 +195,9 @@ use composition- and prototype-held-out external splits for extrapolation claims
 ## Default generation service
 
 The service has working defaults and accepts arbitrary valid compositions. It
-uses a configured checkpoint when available and otherwise returns an explicitly
-labelled algorithmic starting geometry:
+uses a configured local checkpoint first, can use the public Matra/Alexandria
+generation-and-relaxation service when explicitly enabled, and otherwise
+returns an explicitly labelled algorithmic starting geometry:
 
 ```bash
 genim serve --host 127.0.0.1 --port 8000
@@ -190,9 +211,11 @@ curl -X POST http://127.0.0.1:8000/v1/generate \
 
 Use `GENIM_MATRA_CHECKPOINT`, `GENIM_MATRA_SHA256`,
 `GENIM_MODEL_CHECKPOINT`, and `GENIM_MODEL_SHA256` to configure checkpoint
-backends. In a source checkout, the service can discover the verified sibling
-`matra-v02-med.ckpt`. `backend="auto"` prefers an available checkpoint;
-explicit unavailable checkpoint requests fail instead of silently falling back.
+backends. Set `GENIM_ENABLE_ALEXANDRIA=1` to opt into the public remote backend.
+In a source checkout, the service can discover the verified sibling
+`matra-v02-med.ckpt`. `backend="auto"` prefers local checkpoints, then the
+enabled remote service, then the geometry seed; explicit unavailable checkpoint
+requests fail instead of silently falling back.
 See [Public generation API](docs/PUBLIC_API.md).
 
 ## Python API

@@ -3,7 +3,9 @@
 [English](README.md) | **简体中文**
 
 GenIM 是一个用于晶体结构构建、生成、验证、基准评测与筛选的 Python
-软件包和命令行工具。0.3 版本新增了可审计的多模型生成后端；0.2 版本不再把
+软件包和命令行工具。0.4 版本新增了带证据语义的 Matra/Alexandria 能量、
+化学感知的种子几何和透明科学排序；0.3 版本新增了可审计的多模型生成后端；
+0.2 版本不再把
 化学体系硬编码为金属间化合物：
 氧化物、氮化物、卤化物、碳化物、半导体、元素固体和金属间化合物可以
 共用 Hall/Wyckoff—Transformer 流程。
@@ -11,6 +13,20 @@ GenIM 是一个用于晶体结构构建、生成、验证、基准评测与筛�
 模型以空间群、Wyckoff 位点、离散晶格参数和坐标为序列表示，生成结果
 解码为 ASE `Atoms`，随后进行几何/对称性检查、去重，并可选择使用 MLIP
 弛豫和 Energy Above Hull 筛选。
+
+## 0.4 版的核心改进
+
+- Matra 序列中的 `EHULL`/`EHULL_DISC` 会保留为“条件目标”或“模型输出”，
+  不会伪装成独立计算得到的热力学证据。
+- 新增 `AlexandriaMatraBackend`，可调用公开的 Matra 生成/弛豫服务；其能量
+  以 `relaxed_energy_per_atom` 保存并标注来源。由于公开响应没有给出计算器
+  与参考零点，GenIM 不把它误称为 DFT、形成能或凸包能。
+- `ScientificObservable` 区分条件目标、模型输出、后处理估计和独立计算值；
+  `ScientificEvaluator` 可扩展 MLIP、凸包、DFT、声子等证据阶段。
+- 非机器学习后备生成器改用共价半径、堆积率、周期最小镜像距离和最远点采样，
+  显著减少过近原子与孤立原子。
+- schema v3 为候选给出可解释的科学初筛排序；排序只用于后续计算资源分配，
+  不等同于热力学稳定性或可合成性。
 
 ## 0.3 版的核心改进
 
@@ -151,9 +167,10 @@ genim train --data data/mp.tokens.pt --out checkpoints/mp_general.pt `
 
 ## 默认生成服务
 
-HTTP 服务带有可直接使用的默认设置，并接受任意有效化学组成。若检测到已配置的
-Matra 或 GenIM checkpoint，`backend="auto"` 会优先使用 checkpoint；否则返回明确
-标记为非机器学习预测的可复现 algorithmic seed：
+HTTP 服务带有可直接使用的默认设置，并接受任意有效化学组成。
+`backend="auto"` 依次使用本地 Matra/GenIM checkpoint、显式启用的远程
+Matra/Alexandria 服务和化学感知 algorithmic seed。后者会明确标记为
+非机器学习预测：
 
 ```powershell
 genim serve --host 127.0.0.1 --port 8000
@@ -167,8 +184,9 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/generate `
 
 服务提供 `/v1/health`、`/v1/capabilities`、`/v1/generate` 和 `/docs`。
 可用 `GENIM_MATRA_CHECKPOINT`、`GENIM_MATRA_SHA256`、
-`GENIM_MODEL_CHECKPOINT`、`GENIM_MODEL_SHA256` 配置模型。显式请求不可用的
-`matra` 或 `genim` 后端会返回错误，不会把算法种子伪装成 checkpoint 预测。
+`GENIM_MODEL_CHECKPOINT`、`GENIM_MODEL_SHA256` 配置模型；设置
+`GENIM_ENABLE_ALEXANDRIA=1` 可启用远程后端。显式请求不可用的 checkpoint
+后端会返回错误，不会把算法种子伪装成模型预测。
 
 ## Python API
 

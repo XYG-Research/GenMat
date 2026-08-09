@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from .backends import (
     AlgorithmicSeedBackend,
+    AlexandriaMatraBackend,
     EnsembleGenerator,
     GenerationBackend,
     GenerationConstraints,
@@ -20,7 +21,7 @@ from .backends import (
 from .composition import parse_formula_counts, ratios_to_integer_counts
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DEFAULT_FORMULA = "SiO2"
 DEFAULT_MATRA_MED_SHA256 = "4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa"
 
@@ -67,6 +68,8 @@ class ServiceConfig:
     device: str = "auto"
     default_backend: str = "auto"
     auto_discover_checkpoints: bool = True
+    enable_alexandria: bool = False
+    alexandria_base_url: str = "https://alexandria.icams.rub.de/mapi"
     cors_origins: tuple[str, ...] = (
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -97,6 +100,11 @@ class ServiceConfig:
             device=os.environ.get("GENIM_DEVICE", "auto"),
             default_backend=os.environ.get("GENIM_DEFAULT_BACKEND", "auto"),
             auto_discover_checkpoints=auto_discover,
+            enable_alexandria=_env_flag("GENIM_ENABLE_ALEXANDRIA", False),
+            alexandria_base_url=os.environ.get(
+                "GENIM_ALEXANDRIA_BASE_URL",
+                "https://alexandria.icams.rub.de/mapi",
+            ),
             cors_origins=origins,
         )
 
@@ -203,7 +211,11 @@ class GenerationRequest:
             min_sites=int(data.get("min_sites", 1)),
             temperature=float(data.get("temperature", 0.8)),
             top_k=int(data.get("top_k", 0)),
-            seed=None if data.get("seed") is None else int(data.get("seed", 7)),
+            seed=(
+                None
+                if data.get("seed", 7) is None
+                else int(data.get("seed", 7))
+            ),
             forward=int(data.get("forward", 150)),
             decode_jobs=int(data.get("decode_jobs", 0)),
             require_backend_consistency=bool(data.get("require_backend_consistency", True)),
@@ -246,6 +258,10 @@ class GeneratorService:
             backends: dict[str, GenerationBackend] = {
                 "algorithmic_seed": AlgorithmicSeedBackend()
             }
+            if self.config.enable_alexandria:
+                backends["alexandria_matra"] = AlexandriaMatraBackend(
+                    base_url=self.config.alexandria_base_url,
+                )
             errors: dict[str, str] = {}
             if self.config.matra_checkpoint is not None:
                 try:
@@ -274,12 +290,17 @@ class GeneratorService:
         checkpoint_backends = [
             backends[name] for name in ("matra", "genim") if name in backends
         ]
+        remote_backends = [
+            backends[name] for name in ("alexandria_matra",) if name in backends
+        ]
+        if requested == "alexandria":
+            requested = "alexandria_matra"
         if requested in {"auto", "default"}:
-            return checkpoint_backends[:1] or [backends["algorithmic_seed"]]
+            return checkpoint_backends[:1] or remote_backends[:1] or [backends["algorithmic_seed"]]
         if requested in {"hybrid", "ensemble"}:
-            return checkpoint_backends or [backends["algorithmic_seed"]]
+            return [*checkpoint_backends, *remote_backends] or [backends["algorithmic_seed"]]
         if requested in {"all", "ensemble_with_seed"}:
-            return [*checkpoint_backends, backends["algorithmic_seed"]]
+            return [*checkpoint_backends, *remote_backends, backends["algorithmic_seed"]]
         if requested in backends:
             return [backends[requested]]
         detail = self._backend_errors.get(requested)
@@ -315,6 +336,9 @@ class GeneratorService:
             "configured_checkpoints": {
                 "matra": self.config.matra_checkpoint is not None,
                 "genim": self.config.genim_checkpoint is not None,
+            },
+            "remote_services": {
+                "alexandria_matra": self.config.enable_alexandria,
             },
         }
 

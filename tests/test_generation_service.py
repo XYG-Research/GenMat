@@ -24,16 +24,25 @@ def test_formula_and_ratio_parsing_are_reduced_and_general() -> None:
     assert ratios_to_integer_counts(["Fe", "Ni"], [0.5, 1.0]) == {"Fe": 1, "Ni": 2}
 
 
-def test_default_request_is_reproducible_and_uses_schema_v2() -> None:
+def test_default_request_is_reproducible_and_uses_schema_v3() -> None:
     service = seed_only_service()
     first = service.generate({"n": 2, "seed": 19})
     second = service.generate({"n": 2, "seed": 19})
-    assert first["schema_version"] == 2
+    assert first["schema_version"] == 3
     assert first["generator_mode"] == "algorithmic_seed"
     assert first["request"]["formula"] == "SiO2"
     assert [row["structure"] for row in first["candidates"]] == [
         row["structure"] for row in second["candidates"]
     ]
+    assert first["request"]["settings"]["seed"] == 19
+    assert all(row["ranking"]["score"] is not None for row in first["candidates"])
+
+
+def test_omitted_seed_uses_documented_deterministic_default() -> None:
+    first = seed_only_service().generate({"n": 1})
+    second = seed_only_service().generate({"n": 1})
+    assert first["request"]["settings"]["seed"] == 7
+    assert first["candidates"][0]["structure"] == second["candidates"][0]["structure"]
 
 
 def test_arbitrary_composition_has_explicit_constraint_evidence() -> None:
@@ -58,6 +67,8 @@ def test_arbitrary_composition_has_explicit_constraint_evidence() -> None:
     }
     assert "spacegroup_number" in candidate["unsupported_constraints"]
     assert candidate["backend_metrics"]["learned_model"] is False
+    assert candidate["validation"]["metrics"]["min_covalent_distance_ratio"] >= 0.55
+    assert candidate["validation"]["metrics"]["min_coordination"] >= 1
 
 
 def test_unconfigured_explicit_checkpoint_backend_is_not_silently_substituted() -> None:

@@ -36,19 +36,26 @@ This is a software smoke test, not a model-quality benchmark.
 ## Service acceptance
 
 The default `POST /v1/generate` request must work without a checkpoint and emit
-schema version 2. Arbitrary formula tests must verify exact element counts,
+schema version 3. Arbitrary formula tests must verify exact element counts,
 reproducibility by seed, validation metrics, constraint assessments, selection
 reason, and an explicit `learned_model=false` provenance field. The
 `/v1/capabilities` endpoint must declare the algorithmic backend. Explicit
 requests for unavailable checkpoint backends must fail rather than silently
 substitute the algorithmic seed.
 
+Schema-v3 tests must also verify scientific-observable roles, model/calculation
+provenance, ranking components, and the rule that prompt/model-emitted hull
+values do not satisfy stability constraints. A mocked Alexandria response must
+exercise the public relaxation-energy path without consuming the live rate
+limit.
+
 ## Multi-backend acceptance
 
 Unit tests must cover constraint translation, capability declarations,
 three-state constraint evidence, optional Matra imports, safe
 checkpoint inspection, pymatgen-to-ASE conversion, backend consistency flags,
-cross-backend deduplication, source-aware summaries, and non-overwriting output.
+cross-backend deduplication, source-aware summaries, evaluator plugins,
+observable-to-constraint reconciliation, and non-overwriting output.
 
 When the local research-licensed Matra package and checkpoint are available:
 

@@ -69,6 +69,81 @@ class ConstraintStatus(str, Enum):
     NOT_EVALUATED = "not_evaluated"
 
 
+class ObservableRole(str, Enum):
+    """Scientific role of a reported scalar or categorical observable.
+
+    The role is deliberately separate from the value.  A target copied into a
+    prompt, a value emitted by a generative model, and an independently
+    calculated value may be numerically identical while supporting very
+    different scientific claims.
+    """
+
+    CONDITIONING_TARGET = "conditioning_target"
+    MODEL_EMISSION = "model_emission"
+    POSTPROCESSED_ESTIMATE = "postprocessed_estimate"
+    CALCULATED = "calculated"
+
+
+@dataclass(frozen=True)
+class ScientificObservable:
+    """Auditable model, workflow, or calculation output attached to a candidate."""
+
+    name: str
+    value: float | int | str | bool
+    unit: str | None
+    role: ObservableRole
+    method: str
+    evidence_level: str
+    source: str
+    model_name: str | None = None
+    checkpoint_sha256: str | None = None
+    uncertainty: float | None = None
+    independently_validated: bool = False
+    detail: str | None = None
+
+    def __post_init__(self) -> None:
+        for field_name in ("name", "method", "evidence_level", "source"):
+            value = str(getattr(self, field_name)).strip()
+            if not value:
+                raise ValueError(f"ScientificObservable.{field_name} must not be empty")
+            object.__setattr__(self, field_name, value)
+        role = self.role if isinstance(self.role, ObservableRole) else ObservableRole(str(self.role))
+        object.__setattr__(self, "role", role)
+        if isinstance(self.value, float) and not np.isfinite(self.value):
+            raise ValueError("ScientificObservable.value must be finite")
+        if self.uncertainty is not None:
+            uncertainty = float(self.uncertainty)
+            if not np.isfinite(uncertainty) or uncertainty < 0:
+                raise ValueError("ScientificObservable.uncertainty must be finite and >= 0")
+            object.__setattr__(self, "uncertainty", uncertainty)
+
+    def to_record(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "value": self.value,
+            "unit": self.unit,
+            "role": self.role.value,
+            "method": self.method,
+            "evidence_level": self.evidence_level,
+            "source": self.source,
+            "model_name": self.model_name,
+            "checkpoint_sha256": self.checkpoint_sha256,
+            "uncertainty": self.uncertainty,
+            "independently_validated": bool(self.independently_validated),
+            "detail": self.detail,
+        }
+
+
+@runtime_checkable
+class ScientificEvaluator(Protocol):
+    """Plugin contract for candidate-level property or energy evaluators."""
+
+    evaluator_name: str
+
+    def evaluate(self, candidate: "GeneratedCandidate") -> list[ScientificObservable]:
+        ...
+
+
 @dataclass(frozen=True)
 class ConstraintAssessment:
     """Auditable evidence for one constraint on one decoded candidate."""
@@ -485,10 +560,15 @@ class GeneratedCandidate:
     unsupported_constraints: list[str]
     sampling: dict[str, Any]
     constraint_assessments: dict[str, ConstraintAssessment] = field(default_factory=dict)
+    scientific_observables: list[ScientificObservable] = field(default_factory=list)
     backend_metrics: dict[str, Any] = field(default_factory=dict)
     raw_sequence: str | None = None
     error: str | None = None
     duplicate_of: str | None = None
+    rank: int | None = None
+    ranking_score: float | None = None
+    ranking_components: dict[str, float] = field(default_factory=dict)
+    ranking_method: str | None = None
 
     def __post_init__(self) -> None:
         if not self.constraint_assessments:
@@ -550,7 +630,11 @@ class GeneratedCandidate:
             "selection_reason": self.selection_reason,
             "error": self.error,
             "duplicate_of": self.duplicate_of,
-            "formula": None if self.atoms is None else self.atoms.get_chemical_formula(mode="hill"),
+            "formula": (
+                None
+                if self.atoms is None
+                else self.atoms.get_chemical_formula(mode="hill", empirical=True)
+            ),
             "validation": {
                 "valid": self.validation.valid,
                 "reason": self.validation.reason,
@@ -564,6 +648,15 @@ class GeneratedCandidate:
                 name: assessment.to_record()
                 for name, assessment in sorted(self.constraint_assessments.items())
             },
+            "scientific_observables": [
+                observable.to_record() for observable in self.scientific_observables
+            ],
+            "ranking": {
+                "rank": self.rank,
+                "score": self.ranking_score,
+                "components": dict(sorted(self.ranking_components.items())),
+                "method": self.ranking_method,
+            },
             "applied_constraints": list(self.applied_constraints),
             "unsupported_constraints": list(self.unsupported_constraints),
             "sampling": dict(self.sampling),
@@ -571,6 +664,60 @@ class GeneratedCandidate:
             "raw_sequence": self.raw_sequence,
             "structure": structure_payload(self.atoms),
         }
+
+
+def reconcile_observable_constraints(candidate: GeneratedCandidate) -> None:
+    """Upgrade energy constraints only when an independent hull value exists."""
+
+    hull_values = [
+        observable
+        for observable in candidate.scientific_observables
+        if observable.name == "energy_above_hull"
+        and observable.independently_validated
+        and isinstance(observable.value, (int, float))
+        and not isinstance(observable.value, bool)
+    ]
+    if not hull_values:
+        return
+    evidence_priority = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
+    observable = max(
+        hull_values,
+        key=lambda item: evidence_priority.get(item.evidence_level.upper(), -1),
+    )
+    value = float(observable.value)
+    condition = candidate.condition
+    assessments = dict(candidate.constraint_assessments)
+
+    stability = str(condition.get("stability", "any"))
+    if stability in {"stable", "unstable"}:
+        stable = value < 0.075
+        passed = stable if stability == "stable" else not stable
+        assessments["stability"] = ConstraintAssessment(
+            constraint="stability",
+            status=ConstraintStatus.SATISFIED if passed else ConstraintStatus.VIOLATED,
+            method=observable.method,
+            evidence_level=observable.evidence_level,
+            detail=(
+                f"Independent energy-above-hull={value:.8g} eV/atom; the Matra "
+                "stable-class boundary is 0.075 eV/atom."
+            ),
+        )
+
+    target = condition.get("target_e_hull")
+    if target is not None:
+        passed = value <= float(target)
+        assessments["target_e_hull"] = ConstraintAssessment(
+            constraint="target_e_hull",
+            status=ConstraintStatus.SATISFIED if passed else ConstraintStatus.VIOLATED,
+            method=observable.method,
+            evidence_level=observable.evidence_level,
+            detail=f"Independent energy-above-hull={value:.8g} eV/atom.",
+        )
+
+    candidate.constraint_assessments = assessments
+    candidate.condition_checks = {
+        name: assessment.value for name, assessment in assessments.items()
+    }
 
 
 @runtime_checkable
@@ -607,14 +754,18 @@ __all__ = [
     "GenerationBackend",
     "GenerationConstraints",
     "GenerationSettings",
+    "ObservableRole",
     "GenerationCondition",
     "ProposalBackend",
     "ProposalConfig",
     "ProposedStructure",
+    "ScientificObservable",
+    "ScientificEvaluator",
     "condition_compliance",
     "evaluate_condition",
     "evaluate_constraints",
     "normalise_backend_capabilities",
+    "reconcile_observable_constraints",
     "overall_constraint_status",
     "structure_payload",
 ]

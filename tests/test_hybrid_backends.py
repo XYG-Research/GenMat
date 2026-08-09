@@ -21,11 +21,14 @@ from genim.backends import (
     GenerationConstraints,
     GenerationSettings,
     MatraBackend,
+    ObservableRole,
     ProposalConfig,
     ProposedStructure,
+    ScientificObservable,
     inspect_matra_checkpoint,
     write_ensemble_run,
 )
+from genim.backends.matra import extract_matra_observables
 from genim.checkpoints import CheckpointError, sha256_file
 from genim.validate import validate_atoms_report
 
@@ -89,6 +92,24 @@ class _StaticBackend:
                 applied_constraints=[],
                 unsupported_constraints=[],
                 sampling=config.as_dict(),
+            )
+        ]
+
+
+class _HullEvaluator:
+    evaluator_name = "test-hull"
+
+    def evaluate(self, candidate):
+        return [
+            ScientificObservable(
+                name="energy_above_hull",
+                value=0.03,
+                unit="eV/atom",
+                role=ObservableRole.CALCULATED,
+                method="test.reference_hull",
+                evidence_level="L3",
+                source="test",
+                independently_validated=True,
             )
         ]
 
@@ -205,6 +226,30 @@ def test_matra_backend_converts_validates_and_records_provenance() -> None:
     assert all(candidate.unsupported_constraints == ["stability"] for candidate in candidates)
 
 
+def test_matra_property_blocks_are_reported_without_becoming_energy_evidence() -> None:
+    emitted = extract_matra_observables(
+        "AMT 2 STOP ELMS Na Cl STOP EHULL C*0.042 STOP GLOBALSTOP",
+        prompt="AMT 2 STOP ELMS Na Cl STOP",
+        properties=["ehull", "ehull_disc"],
+        model_name="matra-v02-med",
+        checkpoint_sha256="a" * 64,
+    )
+    assert len(emitted) == 1
+    assert emitted[0].name == "energy_above_hull"
+    assert emitted[0].value == pytest.approx(0.042)
+    assert emitted[0].role is ObservableRole.MODEL_EMISSION
+    assert emitted[0].independently_validated is False
+
+    conditioned = extract_matra_observables(
+        "EHULL C*0.05 STOP AMT 2 STOP GLOBALSTOP",
+        prompt="EHULL C*0.05 STOP AMT 2 STOP",
+        properties=["ehull"],
+        model_name="matra-v02-med",
+        checkpoint_sha256=None,
+    )
+    assert conditioned[0].role is ObservableRole.CONDITIONING_TARGET
+
+
 def test_ensemble_deduplicates_across_backends_and_writes_audit_files(tmp_path: Path) -> None:
     atoms = bulk("NaCl", "rocksalt", a=5.64)
     run = EnsembleGenerator(
@@ -213,9 +258,11 @@ def test_ensemble_deduplicates_across_backends_and_writes_audit_files(tmp_path: 
     assert run.report()["total"] == 2
     assert run.report()["valid"] == 2
     assert run.report()["unique_valid"] == 1
-    assert run.report()["schema_version"] == 2
+    assert run.report()["schema_version"] == 3
     assert run.report()["selected"] == 1
     assert len(run.accepted) == 1
+    assert run.accepted[0].rank == 1
+    assert run.accepted[0].ranking_score is not None
     duplicate = [candidate for candidate in run.candidates if candidate.duplicate_of is not None]
     assert len(duplicate) == 1
 
@@ -231,6 +278,7 @@ def test_ensemble_deduplicates_across_backends_and_writes_audit_files(tmp_path: 
     assert sum(record["accepted"] for record in records) == 1
     assert sum(record["selected"] for record in records) == 1
     assert all("constraint_assessments" in record for record in records)
+    assert all("ranking" in record for record in records)
     with pytest.raises(FileExistsError):
         write_ensemble_run(run, tmp_path)
 
@@ -247,6 +295,21 @@ def test_ensemble_prefers_condition_compliant_duplicate() -> None:
     assert mismatch.duplicate_of == match.candidate_id
     assert match.duplicate_of is None
     assert match.accepted
+
+
+def test_independent_evaluator_upgrades_stability_constraint_evidence() -> None:
+    atoms = bulk("NaCl", "rocksalt", a=5.64)
+    run = EnsembleGenerator(
+        [_StaticBackend("evaluated", atoms)],
+        evaluators=[_HullEvaluator()],
+    ).run(
+        condition=GenerationConstraints(stability="stable", target_e_hull=0.05),
+        config=GenerationSettings(n=1),
+    )
+    candidate = run.candidates[0]
+    assert candidate.condition_checks == {"stability": True, "target_e_hull": True}
+    assert candidate.constraint_assessments["stability"].evidence_level == "L3"
+    assert candidate.selected
 
 
 def test_matra_checkpoint_inspection_is_safe_and_checksum_aware(tmp_path: Path) -> None:

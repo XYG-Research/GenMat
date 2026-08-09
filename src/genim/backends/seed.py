@@ -58,35 +58,95 @@ class AlgorithmicSeedBackend:
         *,
         rng: np.random.Generator,
         temperature: float,
-    ) -> tuple[np.ndarray, np.ndarray, float]:
-        radii = [
+    ) -> tuple[np.ndarray, np.ndarray, dict[str, float | int | str]]:
+        radii = np.asarray([
             float(covalent_radii[Atoms(symbol).numbers[0]])
             for symbol in species
-        ]
-        mean_radius_cubed = float(np.mean(np.power(radii, 3)))
-        target_volume_per_atom = float(
-            np.clip(1.5 * (4.0 / 3.0) * math.pi * mean_radius_cubed, 12.0, 95.0)
+        ], dtype=float)
+        sphere_volume = float(np.sum((4.0 / 3.0) * math.pi * np.power(radii, 3)))
+        target_packing = float(np.clip(0.30 - 0.025 * (float(temperature) - 0.8), 0.22, 0.36))
+        target_volume = float(
+            np.clip(
+                sphere_volume / target_packing,
+                8.0 * len(species),
+                95.0 * len(species),
+            )
         )
-        base = (len(species) * target_volume_per_atom) ** (1.0 / 3.0)
-        variation = min(0.12, 0.025 + 0.035 * float(temperature))
-        lengths = base * (1.0 + rng.uniform(-variation, variation, size=3))
-        angles = 90.0 + rng.uniform(-4.5, 4.5, size=3)
-        cell = np.asarray(cellpar_to_cell([*lengths.tolist(), *angles.tolist()]), dtype=float)
 
-        dimension = int(math.ceil(len(species) ** (1.0 / 3.0)))
-        jitter_scale = min(0.11, 0.025 + 0.025 * float(temperature)) / dimension
-        positions: list[list[float]] = []
-        for x in range(dimension):
-            for y in range(dimension):
-                for z in range(dimension):
-                    if len(positions) >= len(species):
-                        break
-                    point = (
-                        (np.asarray([x, y, z], dtype=float) + 0.5) / dimension
-                        + rng.uniform(-jitter_scale, jitter_scale, size=3)
-                    ) % 1.0
-                    positions.append(point.tolist())
-        return cell, np.asarray(positions, dtype=float), target_volume_per_atom
+        def farthest_points(cell_shape: np.ndarray) -> np.ndarray:
+            if len(species) == 1:
+                return np.asarray([[0.0, 0.0, 0.0]], dtype=float)
+            pool_size = max(192, 48 * len(species))
+            pool = rng.random((pool_size, 3))
+            chosen = [pool[int(rng.integers(0, pool_size))]]
+            for _ in range(1, len(species)):
+                delta = pool[:, None, :] - np.asarray(chosen, dtype=float)[None, :, :]
+                delta -= np.round(delta)
+                distances = np.linalg.norm(delta @ cell_shape, axis=2)
+                score = np.min(distances, axis=1)
+                chosen.append(pool[int(np.argmax(score))])
+            return np.asarray(chosen, dtype=float)
+
+        def ratio_metrics(atoms: Atoms) -> tuple[float, float]:
+            if len(atoms) < 2:
+                return 1.0, 1.0
+            distances = np.asarray(atoms.get_all_distances(mic=True), dtype=float)
+            denominator = radii[:, None] + radii[None, :]
+            ratios = np.divide(
+                distances,
+                denominator,
+                out=np.full_like(distances, np.inf),
+                where=denominator > 0,
+            )
+            np.fill_diagonal(ratios, np.inf)
+            return float(np.min(ratios)), float(np.max(np.min(ratios, axis=1)))
+
+        best: tuple[float, np.ndarray, np.ndarray, float, float] | None = None
+        anisotropy = min(0.30, 0.06 + 0.08 * float(temperature))
+        angle_span = min(12.0, 2.5 + 4.0 * float(temperature))
+        for _ in range(64):
+            length_factors = np.exp(rng.normal(0.0, anisotropy, size=3))
+            angles = 90.0 + rng.uniform(-angle_span, angle_span, size=3)
+            shape = np.asarray(
+                cellpar_to_cell([*length_factors.tolist(), *angles.tolist()]),
+                dtype=float,
+            )
+            shape /= abs(float(np.linalg.det(shape))) ** (1.0 / 3.0)
+            positions = farthest_points(shape)
+            cell = shape * target_volume ** (1.0 / 3.0)
+            atoms = Atoms(symbols=species, cell=cell, scaled_positions=positions, pbc=True)
+            min_ratio, max_nearest_ratio = ratio_metrics(atoms)
+
+            if min_ratio < 0.78 and max_nearest_ratio <= 1.45:
+                factor = 0.78 / max(min_ratio, 1e-8)
+                cell = cell * factor
+            elif max_nearest_ratio > 1.45 and min_ratio >= 0.78:
+                factor = 1.45 / max_nearest_ratio
+                cell = cell * factor
+            atoms.set_cell(cell, scale_atoms=True)
+            min_ratio, max_nearest_ratio = ratio_metrics(atoms)
+            penalty = (
+                80.0 * max(0.0, 0.72 - min_ratio) ** 2
+                + 30.0 * max(0.0, max_nearest_ratio - 1.50) ** 2
+                + 0.1 * abs(min_ratio - 0.9)
+            )
+            record = (penalty, cell.copy(), positions.copy(), min_ratio, max_nearest_ratio)
+            if best is None or record[0] < best[0]:
+                best = record
+                if penalty < 1e-5:
+                    break
+
+        assert best is not None
+        _, cell, positions, min_ratio, max_nearest_ratio = best
+        diagnostics: dict[str, float | int | str] = {
+            "algorithm": "covalent_radius_farthest_point_seed_v2",
+            "target_packing_fraction": target_packing,
+            "target_volume_per_atom": target_volume / len(species),
+            "constructed_min_covalent_ratio": min_ratio,
+            "constructed_max_nearest_covalent_ratio": max_nearest_ratio,
+            "placement_trials": 64,
+        }
+        return cell, positions, diagnostics
 
     def propose(
         self,
@@ -112,12 +172,6 @@ class AlgorithmicSeedBackend:
         proposals: list[GeneratedCandidate] = []
         base_seed = 7 if config.seed is None else int(config.seed)
         validation_options = config.validation_kwargs()
-        # Connectivity is chemistry-model dependent and is not a meaningful
-        # rejection criterion for a generic pre-relaxation seed.
-        if "max_nn_factor" not in config.validation_options:
-            validation_options["max_nn_factor"] = None
-        if "min_coordination" not in config.validation_options:
-            validation_options["min_coordination"] = None
 
         for index in range(int(config.n)):
             payload = json.dumps(
@@ -134,7 +188,7 @@ class AlgorithmicSeedBackend:
             rng = np.random.default_rng(local_seed)
             species = list(species_template)
             rng.shuffle(species)
-            cell, positions, target_vpa = self._cell_and_positions(
+            cell, positions, construction_metrics = self._cell_and_positions(
                 species,
                 rng=rng,
                 temperature=float(config.temperature),
@@ -160,8 +214,7 @@ class AlgorithmicSeedBackend:
                     constraint_assessments=assessments,
                     backend_metrics={
                         "generation_mode": "algorithmic_seed",
-                        "algorithm": "stratified_fractional_grid_with_seeded_jitter",
-                        "target_volume_per_atom": target_vpa,
+                        **construction_metrics,
                         "validation_profile": "periodic_geometry_seed",
                         "learned_model": False,
                     },
