@@ -1,6 +1,6 @@
 # Matra integration
 
-GenIM 0.3 treats Matra Genoa as an optional proposal backend. The integration
+GenIM 0.3 treats Matra Genoa as an optional generation backend. The integration
 combines Matra's condition-aware Wyckoff representation with GenIM's shared ASE
 validation, provenance, cross-model deduplication, MLIP/hull screening, and
 benchmark reporting.
@@ -57,17 +57,23 @@ is silently reported as enforced.
 
 ## Output contract
 
-`genim hybrid-generate` writes:
+`genim generate-ensemble` (legacy alias: `hybrid-generate`) writes:
 
-- accepted, unique CIF files;
+- selected, unique CIF files;
 - `candidates.jsonl`, containing every valid or rejected proposal, raw sequence,
   checkpoint SHA256, condition checks, validation metrics, errors, and duplicate
   linkage;
-- `ensemble-report.json`, with total, valid, unique, accepted, unknown-condition,
+- `ensemble-report.json`, with total, valid, unique, selected, unknown-constraint,
   and rejection counts for each backend.
 
-`accepted` is intentionally weaker than "stable": it means structurally valid,
-condition-not-disproved, and unique in that run.
+`selected` is intentionally weaker than "stable": it means structurally valid,
+constraint-not-disproved, and unique in that run. `accepted` is retained only
+as a compatibility field for GenIM 0.3 readers.
+
+Every requested constraint also receives an auditable three-state assessment:
+`satisfied`, `violated`, or `not_evaluated`, including the method and evidence
+level. The backend capability record separately identifies whether a request
+was applied by conditioning, a sampling filter, a post-filter, or not supported.
 
 ## Scientific comparison protocol
 

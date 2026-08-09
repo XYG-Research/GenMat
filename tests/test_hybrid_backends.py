@@ -11,8 +11,15 @@ from ase import Atoms
 from ase.build import bulk
 
 from genim.backends import (
+    BackendCapabilities,
+    ConstraintApplication,
+    ConstraintStatus,
     EnsembleGenerator,
+    GeneratedCandidate,
+    GenerationBackend,
     GenerationCondition,
+    GenerationConstraints,
+    GenerationSettings,
     MatraBackend,
     ProposalConfig,
     ProposedStructure,
@@ -105,6 +112,10 @@ def _fake_matra_checkpoint(path: Path) -> None:
                 "SPACEGROUP": 4,
                 "WYCKOFF": 5,
                 "LATTICE": 6,
+                "AMT": 7,
+                "ELMS": 8,
+                "STOICH": 9,
+                "EHULL": 10,
             },
             "state_dict": {"layer.weight": torch.ones((2, 3))},
         },
@@ -136,6 +147,23 @@ def test_generation_condition_validates_and_builds_matra_prompt() -> None:
         GenerationCondition(spacegroup_number=231)
 
 
+def test_scientific_generation_names_keep_03_compatibility() -> None:
+    assert GenerationCondition is GenerationConstraints
+    assert ProposalConfig is GenerationSettings
+    assert ProposedStructure is GeneratedCandidate
+    assert GenerationBackend.__name__ == "GenerationBackend"
+
+    capabilities = BackendCapabilities(
+        {
+            "elements": ConstraintApplication.SAMPLING_FILTER,
+            "stability": ConstraintApplication.UNSUPPORTED,
+        }
+    )
+    assert capabilities.supported_constraints == frozenset({"elements"})
+    assert capabilities.handling_for("elements") is ConstraintApplication.SAMPLING_FILTER
+    assert capabilities.handling_for("spacegroup_number") is ConstraintApplication.UNSUPPORTED
+
+
 def test_matra_backend_converts_validates_and_records_provenance() -> None:
     atoms = bulk("NaCl", "rocksalt", a=5.64)
     model = _FakeMatraModel(atoms)
@@ -161,8 +189,20 @@ def test_matra_backend_converts_validates_and_records_provenance() -> None:
     assert all(candidate.condition_checks["stoichiometry"] is True for candidate in candidates)
     assert all(candidate.condition_checks["spacegroup_number"] is True for candidate in candidates)
     assert all(candidate.condition_checks["stability"] is None for candidate in candidates)
+    assert all(candidate.constraint_status is ConstraintStatus.NOT_EVALUATED for candidate in candidates)
+    assert all(
+        candidate.constraint_assessments["stability"].method == "energy_model_not_run"
+        for candidate in candidates
+    )
+    assert all(candidate.selected for candidate in candidates)
+    assert all(
+        candidate.selection_reason == "selected_with_unverified_constraints"
+        for candidate in candidates
+    )
     assert all(candidate.checkpoint_sha256 == "a" * 64 for candidate in candidates)
     assert model.last_condition is not None and "SPACEGROUP S225" in model.last_condition
+    assert "EHULL_DISC" not in model.last_condition
+    assert all(candidate.unsupported_constraints == ["stability"] for candidate in candidates)
 
 
 def test_ensemble_deduplicates_across_backends_and_writes_audit_files(tmp_path: Path) -> None:
@@ -173,6 +213,8 @@ def test_ensemble_deduplicates_across_backends_and_writes_audit_files(tmp_path: 
     assert run.report()["total"] == 2
     assert run.report()["valid"] == 2
     assert run.report()["unique_valid"] == 1
+    assert run.report()["schema_version"] == 2
+    assert run.report()["selected"] == 1
     assert len(run.accepted) == 1
     duplicate = [candidate for candidate in run.candidates if candidate.duplicate_of is not None]
     assert len(duplicate) == 1
@@ -187,6 +229,8 @@ def test_ensemble_deduplicates_across_backends_and_writes_audit_files(tmp_path: 
     ]
     assert len(records) == 2
     assert sum(record["accepted"] for record in records) == 1
+    assert sum(record["selected"] for record in records) == 1
+    assert all("constraint_assessments" in record for record in records)
     with pytest.raises(FileExistsError):
         write_ensemble_run(run, tmp_path)
 
@@ -210,7 +254,7 @@ def test_matra_checkpoint_inspection_is_safe_and_checksum_aware(tmp_path: Path) 
     _fake_matra_checkpoint(path)
     info = inspect_matra_checkpoint(path, expected_sha256=sha256_file(path))
     assert info.matra_version == "test"
-    assert info.vocab_size == 7
+    assert info.vocab_size == 11
     assert info.tensor_count == 1
     assert info.parameter_count == 6
     assert info.config["d_model"] == 8

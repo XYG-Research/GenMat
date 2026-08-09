@@ -1,8 +1,17 @@
 from .api import GenIM, GeneratedStructure, SamplingConfig
 from .backends import (
+    AlgorithmicSeedBackend,
+    BackendCapabilities,
+    ConstraintApplication,
+    ConstraintAssessment,
+    ConstraintStatus,
     EnsembleGenerator,
     EnsembleRun,
+    GeneratedCandidate,
+    GenerationBackend,
     GenerationCondition,
+    GenerationConstraints,
+    GenerationSettings,
     GenIMBackend,
     MatraBackend,
     ProposalConfig,
@@ -11,12 +20,23 @@ from .backends import (
     write_ensemble_run,
 )
 from .chem import ChemistryPolicy
+from .service import GenerationRequest, GeneratorService, ServiceConfig
 
 __all__ = [
     "ChemistryPolicy",
+    "AlgorithmicSeedBackend",
+    "BackendCapabilities",
+    "ConstraintApplication",
+    "ConstraintAssessment",
+    "ConstraintStatus",
     "EnsembleGenerator",
     "EnsembleRun",
+    "GeneratedCandidate",
+    "GenerationBackend",
     "GenerationCondition",
+    "GenerationConstraints",
+    "GenerationSettings",
+    "GenerationRequest",
     "GenIM",
     "GenIMBackend",
     "GeneratedStructure",
@@ -24,6 +44,8 @@ __all__ = [
     "ProposalConfig",
     "ProposedStructure",
     "SamplingConfig",
+    "GeneratorService",
+    "ServiceConfig",
     "__version__",
     "inspect_matra_checkpoint",
     "write_ensemble_run",

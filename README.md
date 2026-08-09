@@ -16,13 +16,19 @@ and optionally relaxed/scored with an ML interatomic potential.
 
 ## What changed in 0.3
 
-- `ProposalBackend`, `GenerationCondition`, `ProposedStructure`, and
-  `EnsembleGenerator` define a model-neutral proposal and provenance contract.
+- `GenerationBackend`, `GenerationConstraints`, `GeneratedCandidate`, and
+  `EnsembleGenerator` define a model-neutral generation and provenance contract.
+  The original 0.3 names remain compatibility aliases.
 - `GenIMBackend` and the optional `MatraBackend` run through the same ASE
   conversion, validation, condition audit, and cross-model deduplication path.
+- `AlgorithmicSeedBackend` and `GeneratorService` provide a reproducible,
+  composition-exact default when no compatible checkpoint is configured,
+  without presenting the result as a learned-model prediction.
+- The optional HTTP API exposes `/v1/health`, `/v1/capabilities`, and
+  `/v1/generate` with the same schema-version-2 candidate records used by Python.
 - Matra checkpoints are loaded with PyTorch weights-only mode, SHA256
   verification, schema checks, and exact reconstructed-model weight matching.
-- `genim hybrid-generate` produces accepted CIFs, a complete `candidates.jsonl`
+- `genim generate-ensemble` produces selected CIFs, a complete `candidates.jsonl`
   audit trail, and a source-aware `ensemble-report.json`.
 - Matra conditioning supports stability, exact elements, stoichiometry, space
   group, checkpoint-specific Wyckoff indices, and continuous hull targets.
@@ -73,6 +79,7 @@ Python 3.9 or newer is required.
 ```bash
 python -m pip install -e .
 python -m pip install -e ".[test]"       # tests
+python -m pip install -e ".[api]"        # FastAPI service
 python -m pip install -e ".[hull]"       # hull and surface workflows
 python -m pip install -e ".[all]"        # MLIP + hull extras
 ```
@@ -165,6 +172,29 @@ policy, and any Materials Project filters together with model results. The
 built-in seeded random validation split is a reproducible software baseline;
 use composition- and prototype-held-out external splits for extrapolation claims.
 
+## Default generation service
+
+The service has working defaults and accepts arbitrary valid compositions. It
+uses a configured checkpoint when available and otherwise returns an explicitly
+labelled algorithmic starting geometry:
+
+```bash
+genim serve --host 127.0.0.1 --port 8000
+```
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/generate \
+  -H "Content-Type: application/json" \
+  -d '{"formula":"LiFePO4","spacegroup_number":62,"n":4,"seed":7}'
+```
+
+Use `GENIM_MATRA_CHECKPOINT`, `GENIM_MATRA_SHA256`,
+`GENIM_MODEL_CHECKPOINT`, and `GENIM_MODEL_SHA256` to configure checkpoint
+backends. In a source checkout, the service can discover the verified sibling
+`matra-v02-med.ckpt`. `backend="auto"` prefers an available checkpoint;
+explicit unavailable checkpoint requests fail instead of silently falling back.
+See [Public generation API](docs/PUBLIC_API.md).
+
 ## Python API
 
 ```python
@@ -201,7 +231,7 @@ The current batch sampler performs one model forward pass per token position for
 all active rows. KV-cache decoding is a future performance optimization; the
 public result/provenance contract does not depend on it.
 
-## Hybrid GenIM + Matra generation
+## Ensemble GenIM + Matra generation
 
 The hybrid interface treats models as independent proposal sources. It does not
 average or concatenate incompatible state dictionaries.
@@ -211,7 +241,7 @@ genim matra-checkpoint-info \
   --ckpt ../matra-genoa-preview/checkpoints/matra-v02-med.ckpt \
   --expected-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa
 
-genim hybrid-generate \
+genim generate-ensemble \
   --genim-ckpt checkpoints/mp_general.pt \
   --matra-ckpt ../matra-genoa-preview/checkpoints/matra-v02-med.ckpt \
   --matra-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa \
@@ -223,8 +253,8 @@ Equivalent Python API:
 
 ```python
 from genim import (
-    EnsembleGenerator, GenerationCondition, GenIMBackend,
-    MatraBackend, ProposalConfig, write_ensemble_run,
+    EnsembleGenerator, GenerationConstraints, GenerationSettings, GenIMBackend,
+    MatraBackend, write_ensemble_run,
 )
 
 backends = [
@@ -235,17 +265,18 @@ backends = [
     ),
 ]
 run = EnsembleGenerator(backends).run(
-    condition=GenerationCondition(
+    condition=GenerationConstraints(
         elements=("Na", "Cl"), stoichiometry=(1, 1), stability="stable",
     ),
-    config=ProposalConfig(n=64, temperature=0.75, seed=7),
+    config=GenerationSettings(n=64, temperature=0.75, seed=7),
 )
 write_ensemble_run(run, "output/hybrid-nacl")
 ```
 
-`accepted` means structurally valid, condition-not-disproved, and unique in the
-run. It is not a claim of thermodynamic stability. Unevaluated stability/hull
-conditions are recorded as `null` and require MLIP/DFT evidence. See
+`selected` means structurally valid, constraint-not-disproved, and unique in the
+run. It is not a claim of thermodynamic stability. Each requested constraint is
+reported as `satisfied`, `violated`, or `not_evaluated` with its method and
+evidence level. Unevaluated stability/hull targets require MLIP/DFT evidence. See
 [Matra integration](docs/MATRA_INTEGRATION.md).
 
 ## Composition-constrained synthesis

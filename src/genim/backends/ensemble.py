@@ -9,7 +9,13 @@ from typing import Any, Iterable
 from ase.io import write
 
 from ..dedup import atoms_hash
-from .base import GenerationCondition, ProposalBackend, ProposalConfig, ProposedStructure
+from .base import (
+    GeneratedCandidate,
+    GenerationBackend,
+    GenerationConstraints,
+    GenerationSettings,
+    normalise_backend_capabilities,
+)
 
 
 @dataclass(frozen=True)
@@ -20,44 +26,76 @@ class BackendSummary:
     condition_compliant: int
     condition_unknown: int
     unique_valid: int
-    accepted: int
+    selected: int
     rejection_reasons: dict[str, int]
+
+    @property
+    def accepted(self) -> int:
+        """Backward-compatible alias for :attr:`selected`."""
+
+        return self.selected
+
+    def to_record(self) -> dict[str, Any]:
+        record = asdict(self)
+        record["accepted"] = self.accepted
+        return record
 
 
 @dataclass
 class EnsembleRun:
-    condition: GenerationCondition
-    candidates: list[ProposedStructure]
+    condition: GenerationConstraints
+    candidates: list[GeneratedCandidate]
     backend_summaries: dict[str, BackendSummary]
+    backend_capabilities: dict[str, dict[str, Any]]
 
     @property
-    def accepted(self) -> list[ProposedStructure]:
-        return [candidate for candidate in self.candidates if candidate.accepted]
+    def selected(self) -> list[GeneratedCandidate]:
+        return [candidate for candidate in self.candidates if candidate.selected]
+
+    @property
+    def accepted(self) -> list[GeneratedCandidate]:
+        """Backward-compatible alias for :attr:`selected`."""
+
+        return self.selected
 
     def report(self) -> dict[str, Any]:
         valid = [candidate for candidate in self.candidates if candidate.valid]
         unique_valid = [candidate for candidate in valid if candidate.duplicate_of is None]
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "condition": self.condition.as_dict(),
             "total": len(self.candidates),
             "valid": len(valid),
             "unique_valid": len(unique_valid),
+            "selected": len(self.selected),
             "accepted": len(self.accepted),
             "condition_compliant": sum(candidate.condition_compliant is True for candidate in self.candidates),
             "condition_unknown": sum(candidate.condition_compliant is None for candidate in self.candidates),
+            "constraint_status": {
+                "satisfied": sum(
+                    candidate.constraint_status.value == "satisfied" for candidate in self.candidates
+                ),
+                "violated": sum(
+                    candidate.constraint_status.value == "violated" for candidate in self.candidates
+                ),
+                "not_evaluated": sum(
+                    candidate.constraint_status.value == "not_evaluated"
+                    for candidate in self.candidates
+                ),
+            },
+            "backend_capabilities": dict(sorted(self.backend_capabilities.items())),
             "backends": {
-                name: asdict(summary)
+                name: summary.to_record()
                 for name, summary in sorted(self.backend_summaries.items())
             },
         }
 
 
-def _summary_key(backend: ProposalBackend) -> str:
+def _summary_key(backend: GenerationBackend) -> str:
     return f"{backend.backend_name}:{backend.model_name}"
 
 
-def _rejection_reason(candidate: ProposedStructure) -> str | None:
+def _rejection_reason(candidate: GeneratedCandidate) -> str | None:
     if candidate.valid:
         if candidate.condition_compliant is False:
             return "condition_mismatch"
@@ -72,7 +110,7 @@ class EnsembleGenerator:
 
     def __init__(
         self,
-        backends: Iterable[ProposalBackend],
+        backends: Iterable[GenerationBackend],
         *,
         dedup_symprec: float = 1e-2,
         dedup_frac_tol: float = 1e-2,
@@ -91,14 +129,14 @@ class EnsembleGenerator:
     def run(
         self,
         *,
-        condition: GenerationCondition | None = None,
-        config: ProposalConfig | None = None,
-        backend_configs: dict[str, ProposalConfig] | None = None,
+        condition: GenerationConstraints | None = None,
+        config: GenerationSettings | None = None,
+        backend_configs: dict[str, GenerationSettings] | None = None,
     ) -> EnsembleRun:
-        condition = condition or GenerationCondition()
-        default_config = config or ProposalConfig()
+        condition = condition or GenerationConstraints()
+        default_config = config or GenerationSettings()
         configs = backend_configs or {}
-        candidates: list[ProposedStructure] = []
+        candidates: list[GeneratedCandidate] = []
         requested_by_key: dict[str, int] = {}
         used_ids: Counter[str] = Counter()
 
@@ -113,7 +151,7 @@ class EnsembleGenerator:
                     candidate.candidate_id = f"{candidate.candidate_id}-{used_ids[candidate.candidate_id]}"
                 candidates.append(candidate)
 
-        groups: dict[str, list[tuple[int, ProposedStructure]]] = {}
+        groups: dict[str, list[tuple[int, GeneratedCandidate]]] = {}
         for order, candidate in enumerate(candidates):
             if not candidate.valid or candidate.atoms is None:
                 continue
@@ -154,10 +192,19 @@ class EnsembleGenerator:
                 condition_compliant=sum(candidate.condition_compliant is True for candidate in subset),
                 condition_unknown=sum(candidate.condition_compliant is None for candidate in subset),
                 unique_valid=sum(candidate.valid and candidate.duplicate_of is None for candidate in subset),
-                accepted=sum(candidate.accepted for candidate in subset),
+                selected=sum(candidate.selected for candidate in subset),
                 rejection_reasons=dict(sorted(reasons.items())),
             )
-        return EnsembleRun(condition=condition, candidates=candidates, backend_summaries=summaries)
+        capability_records = {
+            _summary_key(backend): normalise_backend_capabilities(backend.capabilities).to_record()
+            for backend in self.backends
+        }
+        return EnsembleRun(
+            condition=condition,
+            candidates=candidates,
+            backend_summaries=summaries,
+            backend_capabilities=capability_records,
+        )
 
 
 def write_ensemble_run(
@@ -166,7 +213,7 @@ def write_ensemble_run(
     *,
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    """Write accepted CIFs plus a complete JSONL audit trail and report."""
+    """Write selected CIFs plus a complete JSONL audit trail and report."""
 
     target = Path(out_dir).expanduser().resolve()
     target.mkdir(parents=True, exist_ok=True)
@@ -174,13 +221,13 @@ def write_ensemble_run(
     report_path = target / "ensemble-report.json"
     if not overwrite:
         occupied = [path for path in (manifest_path, report_path) if path.exists()]
-        occupied.extend(target / f"{candidate.candidate_id}.cif" for candidate in run.accepted)
+        occupied.extend(target / f"{candidate.candidate_id}.cif" for candidate in run.selected)
         occupied = [path for path in occupied if path.exists()]
         if occupied:
             raise FileExistsError(f"Refusing to overwrite existing ensemble artifacts: {occupied[0]}")
 
     written_cifs: list[Path] = []
-    for candidate in run.accepted:
+    for candidate in run.selected:
         assert candidate.atoms is not None
         path = target / f"{candidate.candidate_id}.cif"
         write(str(path), candidate.atoms, format="cif")

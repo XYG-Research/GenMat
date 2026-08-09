@@ -14,13 +14,13 @@ GenIM 是一个用于晶体结构构建、生成、验证、基准评测与筛�
 
 ## 0.3 版的核心改进
 
-- 新增与模型无关的 `ProposalBackend`、`GenerationCondition`、
-  `ProposedStructure` 和 `EnsembleGenerator` 契约。
+- 新增与模型无关的 `GenerationBackend`、`GenerationConstraints`、
+  `GeneratedCandidate` 和 `EnsembleGenerator` 契约；旧名称保留为 0.3 兼容别名。
 - `GenIMBackend` 和可选 `MatraBackend` 共用 ASE 转换、结构验证、条件审计
   和跨模型去重流程。
 - Matra checkpoint 使用 PyTorch 权重安全模式、SHA256、结构检查和重建模型
   权重精确匹配，不调用历史的非安全便捷加载路径。
-- `genim hybrid-generate` 同时输出通过筛选的 CIF、完整 `candidates.jsonl`
+- `genim generate-ensemble` 同时输出通过筛选的 CIF、完整 `candidates.jsonl`
   审计记录和按来源统计的 `ensemble-report.json`。
 - Matra 可按稳定性、精确元素集合、化学计量、空间群、checkpoint 特有
   Wyckoff 索引和连续凸包目标生成；未支持或无法直接验证的条件会明确写入记录。
@@ -61,6 +61,7 @@ GenIM 给出的是满足表示和快速筛选条件的候选结构，并不自�
 ```powershell
 python -m pip install -e .
 python -m pip install -e ".[test]"
+python -m pip install -e ".[api]"
 python -m pip install -e ".[hull]"
 python -m pip install -e ".[all]"
 ```
@@ -148,6 +149,27 @@ genim train --data data/mp.tokens.pt --out checkpoints/mp_general.pt `
 数据划分方法以及 MP 下载筛选条件。内置的固定随机种子验证集只是可复现的
 软件基线；若要声称外推能力，应另外采用按组成和原型留出的外部测试集。
 
+## 默认生成服务
+
+HTTP 服务带有可直接使用的默认设置，并接受任意有效化学组成。若检测到已配置的
+Matra 或 GenIM checkpoint，`backend="auto"` 会优先使用 checkpoint；否则返回明确
+标记为非机器学习预测的可复现 algorithmic seed：
+
+```powershell
+genim serve --host 127.0.0.1 --port 8000
+```
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/generate `
+  -ContentType application/json `
+  -Body '{"formula":"LiFePO4","spacegroup_number":62,"n":4,"seed":7}'
+```
+
+服务提供 `/v1/health`、`/v1/capabilities`、`/v1/generate` 和 `/docs`。
+可用 `GENIM_MATRA_CHECKPOINT`、`GENIM_MATRA_SHA256`、
+`GENIM_MODEL_CHECKPOINT`、`GENIM_MODEL_SHA256` 配置模型。显式请求不可用的
+`matra` 或 `genim` 后端会返回错误，不会把算法种子伪装成 checkpoint 预测。
+
 ## Python API
 
 ```python
@@ -182,7 +204,7 @@ genim matra-checkpoint-info `
   --ckpt ..\matra-genoa-preview\checkpoints\matra-v02-med.ckpt `
   --expected-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa
 
-genim hybrid-generate `
+genim generate-ensemble `
   --genim-ckpt checkpoints\mp_general.pt `
   --matra-ckpt ..\matra-genoa-preview\checkpoints\matra-v02-med.ckpt `
   --matra-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa `
@@ -194,8 +216,8 @@ Python API：
 
 ```python
 from genim import (
-    EnsembleGenerator, GenerationCondition, GenIMBackend,
-    MatraBackend, ProposalConfig, write_ensemble_run,
+    EnsembleGenerator, GenerationConstraints, GenerationSettings, GenIMBackend,
+    MatraBackend, write_ensemble_run,
 )
 
 backends = [
@@ -206,17 +228,18 @@ backends = [
     ),
 ]
 run = EnsembleGenerator(backends).run(
-    condition=GenerationCondition(
+    condition=GenerationConstraints(
         elements=("Na", "Cl"), stoichiometry=(1, 1), stability="stable",
     ),
-    config=ProposalConfig(n=64, temperature=0.75, seed=7),
+    config=GenerationSettings(n=64, temperature=0.75, seed=7),
 )
 write_ensemble_run(run, "output/hybrid-nacl")
 ```
 
-这里的 `accepted` 只表示结构有效、条件未被证伪且在本次运行中唯一，不代表
-热力学稳定。无法直接评价的稳定性/凸包条件记录为 `null`，仍需 MLIP 或 DFT
-证据。详见 [Matra 集成说明](docs/MATRA_INTEGRATION.md)。
+这里的 `selected` 只表示结构有效、约束未被证伪且在本次运行中唯一，不代表
+热力学稳定。每个约束明确报告为 `satisfied`、`violated` 或 `not_evaluated`，并
+记录方法和证据级别；稳定性/凸包目标仍需 MLIP 或 DFT 证据。详见
+[Matra 集成说明](docs/MATRA_INTEGRATION.md)。
 
 ## 组成约束生成
 

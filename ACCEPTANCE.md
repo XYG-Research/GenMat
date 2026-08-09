@@ -7,11 +7,12 @@ specific intermetallic checkpoint rather than the software's universal scope.
 ## Required software checks
 
 ```powershell
-python -m pip install -e ".[hull,test]"
+python -m pip install -e ".[api,hull,test]"
 python -m pytest -q
 python -m compileall -q src/genim
 genim --help
-genim hybrid-generate --help
+genim generate-ensemble --help
+genim serve --help
 ```
 
 The suite must pass on every supported Python version in CI. No secrets, model
@@ -32,9 +33,20 @@ genim benchmark --cif-dir output/smoke --out output/smoke/benchmark.json
 
 This is a software smoke test, not a model-quality benchmark.
 
+## Service acceptance
+
+The default `POST /v1/generate` request must work without a checkpoint and emit
+schema version 2. Arbitrary formula tests must verify exact element counts,
+reproducibility by seed, validation metrics, constraint assessments, selection
+reason, and an explicit `learned_model=false` provenance field. The
+`/v1/capabilities` endpoint must declare the algorithmic backend. Explicit
+requests for unavailable checkpoint backends must fail rather than silently
+substitute the algorithmic seed.
+
 ## Multi-backend acceptance
 
-Unit tests must cover condition translation, optional Matra imports, safe
+Unit tests must cover constraint translation, capability declarations,
+three-state constraint evidence, optional Matra imports, safe
 checkpoint inspection, pymatgen-to-ASE conversion, backend consistency flags,
 cross-backend deduplication, source-aware summaries, and non-overwriting output.
 

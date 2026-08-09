@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from enum import Enum
+from typing import Any, Mapping, Protocol, runtime_checkable
 
 import numpy as np
 from ase import Atoms
@@ -46,8 +47,129 @@ def _format_matra_number(value: float) -> str:
     return f"C*{number:.8g}"
 
 
+class ConstraintApplication(str, Enum):
+    """How a backend applies a requested generation constraint.
+
+    This describes model behavior, not scientific verification.  A conditioned
+    model can still emit a structure that violates the requested constraint.
+    """
+
+    UNSUPPORTED = "unsupported"
+    CONSTRUCTION = "construction"
+    CONDITIONING = "conditioning"
+    SAMPLING_FILTER = "sampling_filter"
+    POST_FILTER = "post_filter"
+
+
+class ConstraintStatus(str, Enum):
+    """Outcome of evaluating one requested constraint against evidence."""
+
+    SATISFIED = "satisfied"
+    VIOLATED = "violated"
+    NOT_EVALUATED = "not_evaluated"
+
+
 @dataclass(frozen=True)
-class GenerationCondition:
+class ConstraintAssessment:
+    """Auditable evidence for one constraint on one decoded candidate."""
+
+    constraint: str
+    status: ConstraintStatus
+    method: str
+    evidence_level: str
+    detail: str | None = None
+
+    def __post_init__(self) -> None:
+        constraint = str(self.constraint).strip()
+        method = str(self.method).strip()
+        evidence_level = str(self.evidence_level).strip()
+        if not constraint or not method or not evidence_level:
+            raise ValueError("Constraint assessments require constraint, method, and evidence_level")
+        status = self.status if isinstance(self.status, ConstraintStatus) else ConstraintStatus(str(self.status))
+        object.__setattr__(self, "constraint", constraint)
+        object.__setattr__(self, "status", status)
+        object.__setattr__(self, "method", method)
+        object.__setattr__(self, "evidence_level", evidence_level)
+
+    @property
+    def value(self) -> bool | None:
+        if self.status is ConstraintStatus.SATISFIED:
+            return True
+        if self.status is ConstraintStatus.VIOLATED:
+            return False
+        return None
+
+    def to_record(self) -> dict[str, Any]:
+        return {
+            "status": self.status.value,
+            "method": self.method,
+            "evidence_level": self.evidence_level,
+            "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True)
+class BackendCapabilities:
+    """Machine-readable declaration of constraint handling by a backend."""
+
+    constraint_handling: Mapping[str, ConstraintApplication | str] = field(default_factory=dict)
+    notes: str | None = None
+
+    def __post_init__(self) -> None:
+        normalised: dict[str, ConstraintApplication] = {}
+        for name, mode in self.constraint_handling.items():
+            field_name = str(name).strip()
+            if not field_name:
+                raise ValueError("Capability constraint names must not be empty")
+            normalised[field_name] = (
+                mode if isinstance(mode, ConstraintApplication) else ConstraintApplication(str(mode))
+            )
+        object.__setattr__(self, "constraint_handling", normalised)
+
+    @property
+    def supported_constraints(self) -> frozenset[str]:
+        return frozenset(
+            name
+            for name, mode in self.constraint_handling.items()
+            if mode is not ConstraintApplication.UNSUPPORTED
+        )
+
+    def handling_for(self, name: str) -> ConstraintApplication:
+        return self.constraint_handling.get(str(name), ConstraintApplication.UNSUPPORTED)
+
+    def applied_fields(self, requested: set[str] | tuple[str, ...]) -> list[str]:
+        return sorted(name for name in requested if name in self.supported_constraints)
+
+    def unsupported_fields(self, requested: set[str] | tuple[str, ...]) -> list[str]:
+        return sorted(name for name in requested if name not in self.supported_constraints)
+
+    def to_record(self) -> dict[str, Any]:
+        return {
+            "constraint_handling": {
+                name: mode.value for name, mode in sorted(self.constraint_handling.items())
+            },
+            "supported_constraints": sorted(self.supported_constraints),
+            "notes": self.notes,
+        }
+
+
+def normalise_backend_capabilities(
+    capabilities: BackendCapabilities | Mapping[str, ConstraintApplication | str] | set[str] | frozenset[str],
+) -> BackendCapabilities:
+    """Accept legacy sets while exposing the new capability schema."""
+
+    if isinstance(capabilities, BackendCapabilities):
+        return capabilities
+    if isinstance(capabilities, Mapping):
+        return BackendCapabilities(capabilities)
+    return BackendCapabilities(
+        {str(name): ConstraintApplication.CONDITIONING for name in capabilities},
+        notes="Legacy capability set; application mode assumed to be conditioning.",
+    )
+
+
+@dataclass(frozen=True)
+class GenerationConstraints:
     """Backend-neutral generation intent with explicit portability boundaries.
 
     ``elements``, ``stoichiometry`` and ``spacegroup_number`` can be evaluated
@@ -124,26 +246,27 @@ class GenerationCondition:
             "exact_elements": bool(self.exact_elements),
         }
 
-    def to_matra_prompt(self) -> str | None:
+    def to_matra_prompt(self, *, supported_constraints: set[str] | frozenset[str] | None = None) -> str | None:
         """Translate supported constraints into Matra's documented block syntax."""
 
-        if self.elements and not self.exact_elements:
+        supported = set(self.requested_fields()) if supported_constraints is None else set(supported_constraints)
+        if self.elements and "elements" in supported and not self.exact_elements:
             raise ValueError("Matra element prompting supports exact element sets, not required subsets")
         blocks: list[str] = []
-        if self.stability == "stable":
+        if "stability" in supported and self.stability == "stable":
             blocks.append("EHULL_DISC EH0")
-        elif self.stability == "unstable":
+        elif "stability" in supported and self.stability == "unstable":
             blocks.append("EHULL_DISC EH1")
-        if self.elements:
+        if self.elements and "elements" in supported:
             blocks.append(f"AMT {len(self.elements)}")
             blocks.append("ELMS " + " ".join(self.elements))
-        if self.stoichiometry:
+        if self.stoichiometry and "stoichiometry" in supported:
             blocks.append("STOICH " + " ".join(_format_matra_number(value) for value in self.stoichiometry))
-        if self.spacegroup_number is not None:
+        if self.spacegroup_number is not None and "spacegroup_number" in supported:
             blocks.append(f"SPACEGROUP S{self.spacegroup_number}")
-        if self.matra_wyckoff_indices:
+        if self.matra_wyckoff_indices and "matra_wyckoff_indices" in supported:
             blocks.append("WYCKOFF " + " ".join(f"W{value}" for value in self.matra_wyckoff_indices))
-        if self.target_e_hull is not None:
+        if self.target_e_hull is not None and "target_e_hull" in supported:
             blocks.append(f"EHULL C*{float(self.target_e_hull):.8g}")
         if not blocks:
             return None
@@ -151,7 +274,7 @@ class GenerationCondition:
 
 
 @dataclass(frozen=True)
-class ProposalConfig:
+class GenerationSettings:
     n: int = 1
     batch_size: int = 16
     max_sites: int = 25
@@ -166,19 +289,21 @@ class ProposalConfig:
 
     def __post_init__(self) -> None:
         if int(self.n) < 0:
-            raise ValueError("ProposalConfig.n must be >= 0")
+            raise ValueError("GenerationSettings.n must be >= 0")
         if int(self.batch_size) < 1:
-            raise ValueError("ProposalConfig.batch_size must be >= 1")
+            raise ValueError("GenerationSettings.batch_size must be >= 1")
         if int(self.max_sites) < 1 or int(self.min_sites) < 1:
-            raise ValueError("ProposalConfig site limits must be >= 1")
+            raise ValueError("GenerationSettings site limits must be >= 1")
         if int(self.min_sites) > int(self.max_sites):
-            raise ValueError("ProposalConfig.min_sites must be <= max_sites")
-        if float(self.temperature) <= 0:
-            raise ValueError("ProposalConfig.temperature must be > 0")
+            raise ValueError("GenerationSettings.min_sites must be <= max_sites")
+        if not np.isfinite(float(self.temperature)) or float(self.temperature) <= 0:
+            raise ValueError("GenerationSettings.temperature must be finite and > 0")
+        if int(self.top_k) < 0:
+            raise ValueError("GenerationSettings.top_k must be >= 0")
         if int(self.forward) < 1:
-            raise ValueError("ProposalConfig.forward must be >= 1")
+            raise ValueError("GenerationSettings.forward must be >= 1")
         if int(self.decode_jobs) < 0:
-            raise ValueError("ProposalConfig.decode_jobs must be >= 0")
+            raise ValueError("GenerationSettings.decode_jobs must be >= 0")
 
     def validation_kwargs(self) -> dict[str, Any]:
         options = dict(DEFAULT_VALIDATION_OPTIONS)
@@ -201,43 +326,109 @@ def structure_payload(atoms: Atoms | None) -> dict[str, Any] | None:
     }
 
 
-def evaluate_condition(
+def evaluate_constraints(
     atoms: Atoms | None,
     validation: ValidationReport,
-    condition: GenerationCondition,
-) -> dict[str, bool | None]:
-    checks: dict[str, bool | None] = {}
+    condition: GenerationConstraints,
+) -> dict[str, ConstraintAssessment]:
+    """Evaluate every requested constraint without conflating unknown with pass."""
+
+    assessments: dict[str, ConstraintAssessment] = {}
     if atoms is None:
-        return {field: None for field in condition.requested_fields()}
+        return {
+            name: ConstraintAssessment(
+                constraint=name,
+                status=ConstraintStatus.NOT_EVALUATED,
+                method="decoded_structure_unavailable",
+                evidence_level="L0",
+                detail="No decoded structure was available for independent evaluation.",
+            )
+            for name in condition.requested_fields()
+        }
 
     if condition.elements:
         actual_elements = set(atoms.get_chemical_symbols())
         requested = set(condition.elements)
-        checks["elements"] = (
+        passed = (
             actual_elements == requested if condition.exact_elements else requested.issubset(actual_elements)
+        )
+        assessments["elements"] = ConstraintAssessment(
+            constraint="elements",
+            status=ConstraintStatus.SATISFIED if passed else ConstraintStatus.VIOLATED,
+            method="decoded_structure.element_set",
+            evidence_level="L1",
         )
     if condition.stoichiometry:
         actual_elements = set(atoms.get_chemical_symbols())
         if actual_elements != set(condition.elements):
-            checks["stoichiometry"] = False
+            passed = False
         else:
             symbols = atoms.get_chemical_symbols()
             counts = np.asarray([symbols.count(symbol) for symbol in condition.elements], dtype=float)
             target = np.asarray(condition.stoichiometry, dtype=float)
-            checks["stoichiometry"] = bool(
+            passed = bool(
                 counts.sum() > 0
                 and np.allclose(counts / counts.sum(), target / target.sum(), rtol=0.0, atol=1e-8)
             )
+        assessments["stoichiometry"] = ConstraintAssessment(
+            constraint="stoichiometry",
+            status=ConstraintStatus.SATISFIED if passed else ConstraintStatus.VIOLATED,
+            method="decoded_structure.reduced_composition",
+            evidence_level="L1",
+        )
     if condition.spacegroup_number is not None:
         actual = validation.metrics.get("spacegroup_number")
-        checks["spacegroup_number"] = None if actual is None else int(actual) == condition.spacegroup_number
+        if actual is None:
+            assessments["spacegroup_number"] = ConstraintAssessment(
+                constraint="spacegroup_number",
+                status=ConstraintStatus.NOT_EVALUATED,
+                method="spglib.unavailable",
+                evidence_level="L1",
+                detail="The validation report did not contain a space-group number.",
+            )
+        else:
+            passed = int(actual) == condition.spacegroup_number
+            assessments["spacegroup_number"] = ConstraintAssessment(
+                constraint="spacegroup_number",
+                status=ConstraintStatus.SATISFIED if passed else ConstraintStatus.VIOLATED,
+                method="spglib.spacegroup_number",
+                evidence_level="L1",
+            )
     if condition.matra_wyckoff_indices:
-        checks["matra_wyckoff_indices"] = None
+        assessments["matra_wyckoff_indices"] = ConstraintAssessment(
+            constraint="matra_wyckoff_indices",
+            status=ConstraintStatus.NOT_EVALUATED,
+            method="matra_token_indices_not_portable",
+            evidence_level="L0",
+            detail="Checkpoint-specific Matra indices cannot be reconstructed from ASE alone.",
+        )
     if condition.stability != "any":
-        checks["stability"] = None
+        assessments["stability"] = ConstraintAssessment(
+            constraint="stability",
+            status=ConstraintStatus.NOT_EVALUATED,
+            method="energy_model_not_run",
+            evidence_level="L1",
+            detail="A stability prompt is not evidence of thermodynamic stability.",
+        )
     if condition.target_e_hull is not None:
-        checks["target_e_hull"] = None
-    return checks
+        assessments["target_e_hull"] = ConstraintAssessment(
+            constraint="target_e_hull",
+            status=ConstraintStatus.NOT_EVALUATED,
+            method="convex_hull_not_run",
+            evidence_level="L1",
+            detail="Energy-above-hull requires a named energy model and compatible reference set.",
+        )
+    return assessments
+
+
+def evaluate_condition(
+    atoms: Atoms | None,
+    validation: ValidationReport,
+    condition: GenerationConstraints,
+) -> dict[str, bool | None]:
+    """Compatibility view of :func:`evaluate_constraints`."""
+
+    return {name: assessment.value for name, assessment in evaluate_constraints(atoms, validation, condition).items()}
 
 
 def condition_compliance(checks: dict[str, bool | None]) -> bool | None:
@@ -251,8 +442,37 @@ def condition_compliance(checks: dict[str, bool | None]) -> bool | None:
     return True
 
 
+def overall_constraint_status(checks: Mapping[str, bool | None]) -> ConstraintStatus:
+    compliance = condition_compliance(dict(checks))
+    if compliance is True:
+        return ConstraintStatus.SATISFIED
+    if compliance is False:
+        return ConstraintStatus.VIOLATED
+    return ConstraintStatus.NOT_EVALUATED
+
+
+def _assessments_from_checks(
+    checks: Mapping[str, bool | None],
+) -> dict[str, ConstraintAssessment]:
+    return {
+        name: ConstraintAssessment(
+            constraint=name,
+            status=(
+                ConstraintStatus.SATISFIED
+                if value is True
+                else ConstraintStatus.VIOLATED
+                if value is False
+                else ConstraintStatus.NOT_EVALUATED
+            ),
+            method="legacy_boolean_check",
+            evidence_level="unreported",
+        )
+        for name, value in checks.items()
+    }
+
+
 @dataclass
-class ProposedStructure:
+class GeneratedCandidate:
     candidate_id: str
     backend: str
     model_name: str
@@ -264,10 +484,23 @@ class ProposedStructure:
     applied_constraints: list[str]
     unsupported_constraints: list[str]
     sampling: dict[str, Any]
+    constraint_assessments: dict[str, ConstraintAssessment] = field(default_factory=dict)
     backend_metrics: dict[str, Any] = field(default_factory=dict)
     raw_sequence: str | None = None
     error: str | None = None
     duplicate_of: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.constraint_assessments:
+            self.constraint_assessments = _assessments_from_checks(self.condition_checks)
+            return
+        assessment_checks = {
+            name: assessment.value for name, assessment in self.constraint_assessments.items()
+        }
+        if not self.condition_checks:
+            self.condition_checks = assessment_checks
+        elif dict(self.condition_checks) != assessment_checks:
+            raise ValueError("constraint_assessments and condition_checks disagree")
 
     @property
     def valid(self) -> bool:
@@ -278,8 +511,32 @@ class ProposedStructure:
         return condition_compliance(self.condition_checks)
 
     @property
-    def accepted(self) -> bool:
+    def constraint_status(self) -> ConstraintStatus:
+        return overall_constraint_status(self.condition_checks)
+
+    @property
+    def selected(self) -> bool:
+        """Whether this candidate survived software validation and deduplication."""
+
         return bool(self.valid and self.condition_compliant is not False and self.duplicate_of is None)
+
+    @property
+    def accepted(self) -> bool:
+        """Backward-compatible alias for :attr:`selected`."""
+
+        return self.selected
+
+    @property
+    def selection_reason(self) -> str:
+        if not self.valid:
+            return self.error or self.validation.reason or "invalid"
+        if self.condition_compliant is False:
+            return "constraint_violation"
+        if self.duplicate_of is not None:
+            return "duplicate"
+        if self.condition_compliant is None:
+            return "selected_with_unverified_constraints"
+        return "selected"
 
     def to_record(self) -> dict[str, Any]:
         return {
@@ -288,7 +545,9 @@ class ProposedStructure:
             "model_name": self.model_name,
             "checkpoint_sha256": self.checkpoint_sha256,
             "valid": self.valid,
+            "selected": self.selected,
             "accepted": self.accepted,
+            "selection_reason": self.selection_reason,
             "error": self.error,
             "duplicate_of": self.duplicate_of,
             "formula": None if self.atoms is None else self.atoms.get_chemical_formula(mode="hill"),
@@ -300,6 +559,11 @@ class ProposedStructure:
             "condition": dict(self.condition),
             "condition_checks": dict(self.condition_checks),
             "condition_compliant": self.condition_compliant,
+            "constraint_status": self.constraint_status.value,
+            "constraint_assessments": {
+                name: assessment.to_record()
+                for name, assessment in sorted(self.constraint_assessments.items())
+            },
             "applied_constraints": list(self.applied_constraints),
             "unsupported_constraints": list(self.unsupported_constraints),
             "sampling": dict(self.sampling),
@@ -310,28 +574,47 @@ class ProposedStructure:
 
 
 @runtime_checkable
-class ProposalBackend(Protocol):
+class GenerationBackend(Protocol):
     backend_name: str
     model_name: str
     checkpoint_sha256: str | None
-    capabilities: frozenset[str]
+    capabilities: BackendCapabilities | Mapping[str, ConstraintApplication | str] | frozenset[str]
 
     def propose(
         self,
         *,
-        condition: GenerationCondition,
-        config: ProposalConfig,
-    ) -> list[ProposedStructure]:
+        condition: GenerationConstraints,
+        config: GenerationSettings,
+    ) -> list[GeneratedCandidate]:
         ...
 
 
+# Compatibility aliases retained for GenIM 0.3 callers.  New code should use
+# the generation/constraint terminology exported above.
+GenerationCondition = GenerationConstraints
+ProposalConfig = GenerationSettings
+ProposedStructure = GeneratedCandidate
+ProposalBackend = GenerationBackend
+
+
 __all__ = [
+    "BackendCapabilities",
+    "ConstraintApplication",
+    "ConstraintAssessment",
+    "ConstraintStatus",
     "DEFAULT_VALIDATION_OPTIONS",
+    "GeneratedCandidate",
+    "GenerationBackend",
+    "GenerationConstraints",
+    "GenerationSettings",
     "GenerationCondition",
     "ProposalBackend",
     "ProposalConfig",
     "ProposedStructure",
     "condition_compliance",
     "evaluate_condition",
+    "evaluate_constraints",
+    "normalise_backend_capabilities",
+    "overall_constraint_status",
     "structure_payload",
 ]

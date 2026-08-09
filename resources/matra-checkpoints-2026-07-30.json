@@ -1,9 +1,11 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "checked_at": "2026-07-30T11:35:00+02:00",
   "source_directory": "https://alexandria.icams.rub.de/data/matra_checkpoints/",
   "license_scope": "non-commercial research, education, evaluation, and personal use",
   "integration_policy": "manifest-only; GenIM does not redistribute Matra code or weights",
+  "scientific_scope": "Conditioned crystal hypothesis generation; prompts are not independent evidence of stability or constraint satisfaction.",
+  "metadata_limitations": "Training-set composition and model-card metrics are not encoded in the inspected checkpoint payloads; consult the upstream Matra documentation before making domain-coverage claims.",
   "files": [
     {
       "model_name": "Matra-Genoa-MPAS",
@@ -12,7 +14,19 @@
       "last_modified": "2026-04-30T08:52:19Z",
       "size_bytes": 164773383,
       "sha256": "96e201d60a1b2fa0e4ce0b9640b3dd7ff0e6b4ecccc976bae650e569a462448a",
-      "parameter_count": 41170897
+      "parameter_count": 41170897,
+      "tensor_count": 160,
+      "vocab_size": 2000,
+      "checkpoint_config": {
+        "num_layers": 12,
+        "d_model": 512,
+        "num_heads": 16,
+        "dff_ratio": 4,
+        "dropout_rate": 0.0,
+        "embedding": "positional",
+        "max_len": 150,
+        "properties": ["ehull", "ehull_disc"]
+      }
     },
     {
       "model_name": "Matra-Genoa-MPAS-Med",
@@ -21,7 +35,19 @@
       "last_modified": "2026-04-30T08:52:17Z",
       "size_bytes": 24496059,
       "sha256": "4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa",
-      "parameter_count": 6107601
+      "parameter_count": 6107601,
+      "tensor_count": 88,
+      "vocab_size": 2000,
+      "checkpoint_config": {
+        "num_layers": 6,
+        "d_model": 256,
+        "num_heads": 8,
+        "dff_ratio": 4,
+        "dropout_rate": 0.0,
+        "embedding": "positional",
+        "max_len": 150,
+        "properties": ["ehull", "ehull_disc"]
+      }
     },
     {
       "model_name": "Matra-Genoa-MP",
@@ -30,7 +56,19 @@
       "last_modified": "2026-04-30T08:52:16Z",
       "size_bytes": 114318587,
       "sha256": "9aab06c452a263952c66682439ffdf7979ef2ff82137cb5196026d39230fefcf",
-      "parameter_count": 28561361
+      "parameter_count": 28561361,
+      "tensor_count": 112,
+      "vocab_size": 2000,
+      "checkpoint_config": {
+        "num_layers": 8,
+        "d_model": 512,
+        "num_heads": 8,
+        "dff_ratio": 4,
+        "dropout_rate": 0.0,
+        "embedding": "positional",
+        "max_len": 150,
+        "properties": ["ehull", "ehull_disc"]
+      }
     }
   ]
 }

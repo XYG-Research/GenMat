@@ -7,10 +7,12 @@ import torch
 from ..api import GenIM, SamplingConfig
 from ..chem import ChemistryPolicy
 from .base import (
-    GenerationCondition,
-    ProposalConfig,
-    ProposedStructure,
-    evaluate_condition,
+    BackendCapabilities,
+    ConstraintApplication,
+    GeneratedCandidate,
+    GenerationConstraints,
+    GenerationSettings,
+    evaluate_constraints,
 )
 
 
@@ -23,7 +25,13 @@ class GenIMBackend:
     """Expose a regular GenIM checkpoint through the proposal-backend contract."""
 
     backend_name = "genim"
-    capabilities = frozenset({"elements"})
+    capabilities = BackendCapabilities(
+        {"elements": ConstraintApplication.SAMPLING_FILTER},
+        notes=(
+            "Element symbols are restricted by a vocabulary mask. Other requested "
+            "constraints are evaluated after decoding when possible."
+        ),
+    )
 
     def __init__(self, generator: GenIM, *, model_name: str | None = None):
         self.generator = generator
@@ -44,9 +52,9 @@ class GenIMBackend:
     def propose(
         self,
         *,
-        condition: GenerationCondition,
-        config: ProposalConfig,
-    ) -> list[ProposedStructure]:
+        condition: GenerationConstraints,
+        config: GenerationSettings,
+    ) -> list[GeneratedCandidate]:
         elements = list(condition.elements)
         if elements and not condition.exact_elements:
             raise ValueError("GenIM element-token restriction supports exact element sets, not required subsets")
@@ -76,13 +84,14 @@ class GenIMBackend:
             validation_options=config.validation_kwargs(),
         )
         requested = set(condition.requested_fields())
-        applied = sorted(requested.intersection(self.capabilities))
-        unsupported = sorted(requested.difference(self.capabilities))
+        applied = self.capabilities.applied_fields(requested)
+        unsupported = self.capabilities.unsupported_fields(requested)
         prefix = f"genim-{_slug(self.model_name)}"
-        proposals: list[ProposedStructure] = []
+        proposals: list[GeneratedCandidate] = []
         for index, result in enumerate(generated):
+            assessments = evaluate_constraints(result.atoms, result.validation, condition)
             proposals.append(
-                ProposedStructure(
+                GeneratedCandidate(
                     candidate_id=f"{prefix}-{index:05d}",
                     backend=self.backend_name,
                     model_name=self.model_name,
@@ -90,10 +99,13 @@ class GenIMBackend:
                     atoms=result.atoms,
                     validation=result.validation,
                     condition=condition.as_dict(),
-                    condition_checks=evaluate_condition(result.atoms, result.validation, condition),
+                    condition_checks={
+                        name: assessment.value for name, assessment in assessments.items()
+                    },
                     applied_constraints=applied,
                     unsupported_constraints=unsupported,
                     sampling=config.as_dict(),
+                    constraint_assessments=assessments,
                     backend_metrics={
                         "token_count": len(result.tokens),
                         "chemistry_policy": dict(result.chemistry_policy),

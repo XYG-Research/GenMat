@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use GenIM, cite this software and the method papers referenced in the README."
+title: "GenIM: symmetry-aware generative crystal structures"
+type: software
+authors:
+  - name: "XYG Research"
+version: 0.3.0
+repository-code: "https://github.com/XYG-Research/GenIM"
+license: BSD-3-Clause
+keywords:
+  - crystal structure generation
+  - materials science
+  - symmetry
+  - generative model

@@ -16,14 +16,42 @@ from ..checkpoints import CheckpointError, resolve_device, safe_torch_load, sha2
 from ..structure_format import StructureRecord
 from ..validate import ValidationReport, validate_atoms_report
 from .base import (
-    GenerationCondition,
-    ProposalConfig,
-    ProposedStructure,
-    evaluate_condition,
+    BackendCapabilities,
+    ConstraintApplication,
+    GeneratedCandidate,
+    GenerationConstraints,
+    GenerationSettings,
+    evaluate_constraints,
 )
 
 
 MATRA_REQUIRED_KEYS = frozenset({"state_dict", "vocab"})
+
+_MATRA_STRUCTURAL_CAPABILITIES = {
+    "elements": ConstraintApplication.CONDITIONING,
+    "stoichiometry": ConstraintApplication.CONDITIONING,
+    "spacegroup_number": ConstraintApplication.CONDITIONING,
+    "matra_wyckoff_indices": ConstraintApplication.CONDITIONING,
+}
+
+
+def _capabilities_from_props(props: list[str], *, assumed: bool = False) -> BackendCapabilities:
+    handling = dict(_MATRA_STRUCTURAL_CAPABILITIES)
+    normalised = {str(value).strip().lower() for value in props}
+    if "ehull_disc" in normalised:
+        handling["stability"] = ConstraintApplication.CONDITIONING
+    if "ehull" in normalised:
+        handling["target_e_hull"] = ConstraintApplication.CONDITIONING
+    return BackendCapabilities(
+        handling,
+        notes=(
+            "Injected Matra model capabilities were assumed; provide an explicit declaration "
+            "for production services."
+            if assumed
+            else "Derived from the inspected checkpoint property configuration. Prompt "
+            "application does not by itself verify the decoded scientific target."
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -90,7 +118,20 @@ def inspect_matra_checkpoint(
     vocab = blob["vocab"]
     if not isinstance(state, dict) or not isinstance(vocab, dict):
         raise CheckpointError("Matra state_dict and vocab must be mappings")
-    required_tokens = {"PAD", "C*", "STOP", "GLOBALSTOP", "SPACEGROUP", "WYCKOFF", "LATTICE"}
+    config = _matra_config(blob)
+    required_tokens = {
+        "PAD",
+        "C*",
+        "STOP",
+        "GLOBALSTOP",
+        "AMT",
+        "ELMS",
+        "STOICH",
+        "SPACEGROUP",
+        "WYCKOFF",
+        "LATTICE",
+    }
+    required_tokens.update(str(prop).upper() for prop in config["props"])
     absent_tokens = sorted(required_tokens.difference(str(key) for key in vocab))
     if absent_tokens:
         raise CheckpointError(f"Matra vocabulary is missing required tokens: {', '.join(absent_tokens)}")
@@ -103,7 +144,7 @@ def inspect_matra_checkpoint(
         sha256=checksum,
         size_bytes=checkpoint_path.stat().st_size,
         matra_version="unknown" if matra_version is None else str(matra_version),
-        config=_matra_config(blob),
+        config=config,
         vocab_size=len(vocab),
         tensor_count=len(tensors),
         parameter_count=sum(int(value.numel()) for value in tensors),
@@ -171,16 +212,7 @@ class MatraBackend:
     """
 
     backend_name = "matra"
-    capabilities = frozenset(
-        {
-            "elements",
-            "stoichiometry",
-            "spacegroup_number",
-            "matra_wyckoff_indices",
-            "stability",
-            "target_e_hull",
-        }
-    )
+    capabilities = _capabilities_from_props(["ehull", "ehull_disc"], assumed=True)
 
     def __init__(
         self,
@@ -189,11 +221,16 @@ class MatraBackend:
         model_name: str,
         checkpoint_sha256: str | None,
         checkpoint_info: MatraCheckpointInfo | None = None,
+        capabilities: BackendCapabilities | None = None,
     ):
         self.model = model
         self.model_name = str(model_name)
         self.checkpoint_sha256 = checkpoint_sha256
         self.checkpoint_info = checkpoint_info
+        self.capabilities = capabilities or _capabilities_from_props(
+            list(getattr(model, "props", []) or []),
+            assumed=True,
+        )
 
     @classmethod
     def from_model(
@@ -202,6 +239,7 @@ class MatraBackend:
         *,
         model_name: str = "injected-matra",
         checkpoint_sha256: str | None = None,
+        capabilities: BackendCapabilities | None = None,
     ) -> "MatraBackend":
         """Construct an adapter around an injected model (useful for services/tests)."""
 
@@ -210,6 +248,7 @@ class MatraBackend:
             model_name=model_name,
             checkpoint_sha256=checkpoint_sha256,
             checkpoint_info=None,
+            capabilities=capabilities,
         )
 
     @classmethod
@@ -261,21 +300,24 @@ class MatraBackend:
             model_name=model_name or checkpoint_path.stem,
             checkpoint_sha256=info.sha256,
             checkpoint_info=info,
+            capabilities=_capabilities_from_props(info.config["props"]),
         )
 
     def propose(
         self,
         *,
-        condition: GenerationCondition,
-        config: ProposalConfig,
-    ) -> list[ProposedStructure]:
-        prompt = condition.to_matra_prompt()
+        condition: GenerationConstraints,
+        config: GenerationSettings,
+    ) -> list[GeneratedCandidate]:
+        prompt = condition.to_matra_prompt(
+            supported_constraints=self.capabilities.supported_constraints
+        )
         # Matra's ``condition=None`` means "stable", not unconstrained. Starting
         # the AMT block allows an actual unconstrained generation when requested.
         effective_prompt = prompt or "AMT"
         requested = set(condition.requested_fields())
-        applied = sorted(requested.intersection(self.capabilities))
-        unsupported = sorted(requested.difference(self.capabilities))
+        applied = self.capabilities.applied_fields(requested)
+        unsupported = self.capabilities.unsupported_fields(requested)
 
         with _temporary_random_seed(config.seed):
             sequences = self.model.generate(
@@ -302,7 +344,7 @@ class MatraBackend:
             )
 
         prefix = f"matra-{_slug(self.model_name)}"
-        proposals: list[ProposedStructure] = []
+        proposals: list[GeneratedCandidate] = []
         for index, (sequence, result) in enumerate(zip(sequences, decoded)):
             structure = getattr(result, "structure", None)
             atoms: Atoms | None = None
@@ -339,8 +381,9 @@ class MatraBackend:
             else:
                 validation = validate_atoms_report(atoms, **config.validation_kwargs())
 
+            assessments = evaluate_constraints(atoms, validation, condition)
             proposals.append(
-                ProposedStructure(
+                GeneratedCandidate(
                     candidate_id=f"{prefix}-{index:05d}",
                     backend=self.backend_name,
                     model_name=self.model_name,
@@ -348,10 +391,13 @@ class MatraBackend:
                     atoms=atoms,
                     validation=validation,
                     condition=condition.as_dict(),
-                    condition_checks=evaluate_condition(atoms, validation, condition),
+                    condition_checks={
+                        name: assessment.value for name, assessment in assessments.items()
+                    },
                     applied_constraints=applied,
                     unsupported_constraints=unsupported,
                     sampling=config.as_dict(),
+                    constraint_assessments=assessments,
                     backend_metrics=backend_metrics,
                     raw_sequence=str(sequence),
                     error=error,

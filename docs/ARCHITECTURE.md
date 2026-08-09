@@ -12,26 +12,26 @@ Materials Project / JSONL / examples
               v
  Transformer training -> versioned GenIM checkpoint
               |
-              +----------------------+
-              |                      |
-              v                      v
-        GenIMBackend           MatraBackend (optional)
-              |                      |
-              +---- ProposalBackend -+
+              +----------------------+----------------------+
+              |                      |                      |
+              v                      v                      v
+   AlgorithmicSeedBackend      GenIMBackend          MatraBackend (optional)
+              |                      |                      |
+              +----------- GenerationBackend -------------+
                          |
                          v
-            ProposedStructure + provenance
+            GeneratedCandidate + provenance
                          |
                          v
             ASE conversion + shared validation
                          |
                          v
-       condition audit + cross-backend deduplication
+  constraint evidence + cross-backend deduplication
                          |
               +----------+-----------+
               |          |           |
               v          v           v
-       benchmark JSON  MLIP/hull  surface screening
+       HTTP/schema v2  benchmark JSON  MLIP/hull  surface screening
 ```
 
 ## Stable boundaries
@@ -42,12 +42,20 @@ Materials Project / JSONL / examples
 - `checkpoints.py`: safe loading, schema compatibility, checksums, and downloads.
 - `generate.py`: grammar-constrained scalar and batch token sampling.
 - `api.py`: reusable model/result/provenance contract.
-- `backends/base.py`: backend-neutral conditions, proposal records, capability
-  and condition-compliance contracts.
+- `backends/base.py`: backend-neutral constraints, generation settings,
+  capability declarations, candidate records, and three-state evidence.
 - `backends/genim.py`: adapter from the existing public GenIM API.
 - `backends/matra.py`: optional, safely loaded Matra inference adapter.
+- `backends/seed.py`: always-available, composition-exact starting-geometry
+  construction without a learned-model claim.
 - `backends/ensemble.py`: shared cross-backend validation, deduplication,
   source-aware summaries, CIF and JSONL audit output.
+- `service.py`: framework-neutral request parsing, backend discovery/selection,
+  default settings, and schema-version-2 response assembly.
+- `server.py`: optional FastAPI transport (`/v1/health`,
+  `/v1/capabilities`, `/v1/generate`).
+- `commands/`: composable CLI registrations and handlers extracted from the
+  legacy orchestration hub.
 - `validate.py`: fast structural decisions plus auditable metrics.
 - `benchmark.py`: deterministic aggregate evaluation.
 - `score.py`, `hull.py`, `surface_screen.py`: optional higher-cost scientific screens.
@@ -64,7 +72,21 @@ Each backend owns its safe loader and exposes a common proposal record only
 after decoding. Transformer state dictionaries are not merged across token
 grammars.
 
-`accepted` is a software-pipeline state: structurally valid,
-condition-not-disproved, and unique in the current run. A `null` condition
-check means the condition has not been scientifically evaluated and must not be
-reported as satisfied.
+`selected` is a software-pipeline state: structurally valid,
+constraint-not-disproved, and unique in the current run. It is not a stability
+claim. `accepted` remains a GenIM 0.3 compatibility alias. Every requested
+constraint has one of `satisfied`, `violated`, or `not_evaluated`; the last must
+never be reported as satisfied.
+
+Backends declare *how* they apply a constraint (`construction`, `conditioning`,
+`sampling_filter`, `post_filter`, or `unsupported`). This capability statement
+is deliberately separate from per-candidate evidence. Matra conditioning and a
+GenIM token mask are generation mechanisms; decoded-structure checks, MLIP,
+convex-hull, DFT, and phonons provide progressively stronger evidence.
+
+The HTTP service defaults to `backend="auto"`. It prefers a configured Matra
+or GenIM checkpoint and otherwise uses `AlgorithmicSeedBackend`. An explicit
+request for an unavailable checkpoint backend fails rather than being silently
+relabelled as a model prediction. The service layer is the canonical integration
+boundary for the visual application; the older checkpoint-specific `api.py`
+objects remain available for GenIM 0.3 compatibility.
