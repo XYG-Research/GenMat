@@ -26,10 +26,14 @@ class GenIMBackend:
 
     backend_name = "genim"
     capabilities = BackendCapabilities(
-        {"elements": ConstraintApplication.SAMPLING_FILTER},
+        {
+            "elements": ConstraintApplication.SAMPLING_FILTER,
+            "spacegroup_number": ConstraintApplication.CONDITIONING,
+        },
         notes=(
-            "Element symbols are restricted by a vocabulary mask. Other requested "
-            "constraints are evaluated after decoding when possible."
+            "Element symbols are restricted by a vocabulary mask. Exact space group "
+            "requests force the corresponding Hall token before decoding and are then "
+            "independently checked with spglib. Other constraints are evaluated after decoding."
         ),
     )
 
@@ -77,6 +81,7 @@ class GenIMBackend:
                 temperature=float(config.temperature),
                 top_k=int(config.top_k),
                 seed=config.seed,
+                fixed_spacegroup=condition.spacegroup_number,
             ),
             chemistry=chemistry,
             restrict_elements=elements or None,
@@ -109,6 +114,8 @@ class GenIMBackend:
                     backend_metrics={
                         "token_count": len(result.tokens),
                         "chemistry_policy": dict(result.chemistry_policy),
+                        "forced_hall_number": result.sampling.get("forced_hall_number"),
+                        "hall_resolution_source": result.sampling.get("hall_resolution_source"),
                     },
                     raw_sequence=" ".join(result.tokens),
                     error=result.error,

@@ -46,10 +46,10 @@ class _Response:
 
 class _Session:
     def __init__(self):
-        self.post_payload = None
+        self.post_payloads = []
 
     def post(self, url, *, json, stream, timeout):
-        self.post_payload = json
+        self.post_payloads.append(json)
         done = {
             "status": "done",
             "data": {
@@ -82,13 +82,16 @@ def test_alexandria_energy_is_a_conservative_postprocessed_observable() -> None:
         ),
         config=GenerationSettings(n=4, temperature=0.8, seed=7),
     )
-    assert session.post_payload == {
-        "composition": "NaCl",
-        "spacegroup": "",
-        "creativity": 1,
-        "pool_size": 4,
-    }
-    assert len(candidates) == 1
+    assert session.post_payloads == [
+        {
+            "composition": "NaCl",
+            "spacegroup": "",
+            "creativity": 1,
+            "pool_size": 1,
+        }
+        for _ in range(4)
+    ]
+    assert len(candidates) == 4
     candidate = candidates[0]
     assert candidate.valid
     assert candidate.backend == "alexandria_matra"
@@ -99,3 +102,4 @@ def test_alexandria_energy_is_a_conservative_postprocessed_observable() -> None:
     assert observable.name == "relaxed_energy_per_atom"
     assert observable.independently_validated is False
     assert "Do not relabel" in (observable.detail or "")
+    assert len({candidate.candidate_id for candidate in candidates}) == 4

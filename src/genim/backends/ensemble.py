@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -19,6 +19,7 @@ from .base import (
     reconcile_observable_constraints,
 )
 from .ranking import RANKING_METHOD, rank_candidates
+from .mutation import augment_population, population_plan
 
 
 @dataclass(frozen=True)
@@ -157,7 +158,33 @@ class EnsembleGenerator:
             key = _summary_key(backend)
             backend_config = configs.get(key, configs.get(backend.backend_name, default_config))
             requested_by_key[key] = int(backend_config.n)
-            proposed = backend.propose(condition=condition, config=backend_config)
+            parent_count, planned_mutants = population_plan(
+                int(backend_config.n),
+                float(backend_config.mutation_fraction),
+            )
+            proposal_config = replace(
+                backend_config,
+                n=parent_count,
+                batch_size=min(int(backend_config.batch_size), max(1, parent_count)),
+            )
+            proposed = backend.propose(condition=condition, config=proposal_config)
+            proposed = list(proposed)[:parent_count]
+            for candidate in proposed:
+                candidate.backend_metrics.setdefault("population_role", "direct_parent")
+                candidate.backend_metrics.setdefault(
+                    "requested_mutation_fraction",
+                    float(backend_config.mutation_fraction),
+                )
+            # A short-returning backend can still reach the requested population
+            # through mutations, provided at least one valid parent exists.
+            effective_mutants = planned_mutants + max(0, parent_count - len(proposed))
+            proposed = augment_population(
+                proposed,
+                target_size=int(backend_config.n),
+                mutant_count=effective_mutants,
+                condition=condition,
+                config=backend_config,
+            )
             for candidate in proposed:
                 used_ids[candidate.candidate_id] += 1
                 if used_ids[candidate.candidate_id] > 1:

@@ -4,7 +4,9 @@
 
 GenIM is a Python package and command-line toolkit for building, generating,
 validating, ranking, benchmarking, and screening periodic crystal structures.
-Version 0.4 adds evidence-aware Matra/Alexandria observables, chemistry-aware
+Version 0.5 adds controlled, composition-preserving population mutation and
+exact Hall-token space-group conditioning. Version 0.4 added evidence-aware
+Matra/Alexandria observables, chemistry-aware
 seed geometry, and deterministic scientific triage. Version 0.3 added auditable
 multi-model proposal backends. Version 0.2 made the chemistry
 domain explicit and general-purpose: oxides, nitrides,
@@ -15,6 +17,27 @@ The representation combines space-group symmetry, Wyckoff sites, discretized
 lattice/coordinate tokens, and a causal Transformer. Generated candidates are
 decoded to ASE `Atoms`, checked geometrically and crystallographically, deduplicated,
 and optionally relaxed/scored with an ML interatomic potential.
+
+## What changed in 0.5
+
+- `n` is the requested final population size. `mutation_fraction` divides it
+  into independently generated direct parents and validated mutants, while
+  always retaining at least one direct model result.
+- Mutants preserve the complete composition and parent lineage. Exact
+  space-group requests use symmetry-conservative cell mutation plus projected
+  Wyckoff-orbit motion and compatible whole-orbit swaps; every local mutant is
+  independently rechecked with spglib and rejected on mismatch.
+- Geometry-dependent parent observables, including remote relaxation energy,
+  are deliberately removed from mutants. Relax and rescore mutants before
+  comparing their energies.
+- `SamplingConfig.fixed_spacegroup` resolves the requested group to a Hall
+  setting and forces that Hall token in the autoregressive sequence. Vocabulary
+  coverage enables conditioning but does not prove that the checkpoint learned
+  that structural family well.
+- The historical GenIM checkpoint generator was not a simple random generator:
+  it learned Hall/Wyckoff/lattice/site token sequences. The former Studio edge
+  fallback was a separate algorithmic geometry seed and did not represent a
+  learned model over all 230 space groups; it is now explicit-only.
 
 ## What changed in 0.4
 

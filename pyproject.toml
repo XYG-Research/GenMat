@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "genim"
-version = "0.4.0"
+version = "0.5.0"
 description = "Multi-backend, symmetry-aware crystal generation toolkit for general materials chemistry."
 readme = "README.md"
 requires-python = ">=3.9"

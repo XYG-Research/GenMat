@@ -20,6 +20,7 @@ from .alexandria import AlexandriaMatraBackend
 from .ensemble import BackendSummary, EnsembleGenerator, EnsembleRun, write_ensemble_run
 from .genim import GenIMBackend
 from .matra import MatraBackend, MatraCheckpointInfo, inspect_matra_checkpoint
+from .mutation import MUTATION_METHOD, mutate_candidate, population_plan
 from .seed import AlgorithmicSeedBackend
 
 __all__ = [
@@ -40,6 +41,7 @@ __all__ = [
     "GenIMBackend",
     "MatraBackend",
     "MatraCheckpointInfo",
+    "MUTATION_METHOD",
     "ObservableRole",
     "ProposalBackend",
     "ProposalConfig",
@@ -48,5 +50,7 @@ __all__ = [
     "ScientificEvaluator",
     "inspect_matra_checkpoint",
     "normalise_backend_capabilities",
+    "mutate_candidate",
+    "population_plan",
     "write_ensemble_run",
 ]

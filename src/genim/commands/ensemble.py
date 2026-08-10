@@ -47,6 +47,20 @@ def add_ensemble_parser(
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--forward", type=int, default=150)
     parser.add_argument("--decode-jobs", type=int, default=0)
+    parser.add_argument(
+        "--mutation-fraction",
+        type=float,
+        default=0.0,
+        help="Fraction of the final population produced as composition-preserving mutants.",
+    )
+    parser.add_argument("--mutation-strain", type=float, default=0.08)
+    parser.add_argument("--mutation-displacement", type=float, default=0.12)
+    parser.add_argument("--mutation-attempts", type=int, default=24)
+    parser.add_argument(
+        "--allow-symmetry-breaking-mutations",
+        action="store_true",
+        help="Allow coordinate/site mutations even when an exact space group was requested.",
+    )
     parser.add_argument("--min-dist", type=float, default=0.5)
     parser.add_argument("--symprec", type=float, default=1e-2)
     parser.add_argument(
@@ -80,6 +94,11 @@ def run_ensemble_command(args: argparse.Namespace) -> int:
         forward=int(args.forward),
         decode_jobs=int(args.decode_jobs),
         require_backend_consistency=not bool(args.allow_inconsistent_matra),
+        mutation_fraction=float(args.mutation_fraction),
+        mutation_strain=float(args.mutation_strain),
+        mutation_displacement=float(args.mutation_displacement),
+        mutation_attempts=int(args.mutation_attempts),
+        preserve_spacegroup=not bool(args.allow_symmetry_breaking_mutations),
         validation_options={"min_dist": float(args.min_dist), "symprec": float(args.symprec)},
     )
     backends = []
@@ -116,4 +135,3 @@ def run_ensemble_command(args: argparse.Namespace) -> int:
 
 
 __all__ = ["add_ensemble_parser", "run_ensemble_command"]
-

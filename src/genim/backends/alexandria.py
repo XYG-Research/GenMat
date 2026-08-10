@@ -78,14 +78,20 @@ class AlexandriaMatraBackend:
             return 2
         return 3
 
-    def _generate(self, condition: GenerationConstraints, config: GenerationSettings) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    def _generate(
+        self,
+        condition: GenerationConstraints,
+        config: GenerationSettings,
+        *,
+        pool_size: int = 1,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         payload = {
             "composition": self._formula(condition),
             "spacegroup": (
                 "" if condition.spacegroup_number is None else str(condition.spacegroup_number)
             ),
             "creativity": self._creativity(config.temperature),
-            "pool_size": max(1, min(int(config.n), 16)),
+            "pool_size": max(1, min(int(pool_size), 16)),
         }
         response = self.session.post(
             f"{self.base_url}/gen-crystal",
@@ -133,92 +139,104 @@ class AlexandriaMatraBackend:
         requested = set(condition.requested_fields())
         applied = self.capabilities.applied_fields(requested)
         unsupported = self.capabilities.unsupported_fields(requested)
-        try:
-            result, progress = self._generate(condition, config)
-            atoms, cif_url = self._download_atoms(str(result["cif_filename"]))
-            validation = validate_atoms_report(atoms, **config.validation_kwargs())
-            assessments = evaluate_constraints(atoms, validation, condition)
-            energy = float(result["energy"])
-            observables = [
-                ScientificObservable(
-                    name="relaxed_energy_per_atom",
-                    value=energy,
-                    unit="eV/atom",
-                    role=ObservableRole.POSTPROCESSED_ESTIMATE,
-                    method="alexandria.mapi.gen-crystal",
-                    evidence_level="L2",
-                    source="alexandria.response.energy",
-                    model_name=self.model_name,
-                    independently_validated=False,
-                    detail=(
-                        "The public endpoint reports this value after its relaxation stage but "
-                        "does not identify the calculator or reference zero. Do not relabel it "
-                        "as formation energy, energy above hull, or DFT energy."
-                    ),
+        proposals: list[GeneratedCandidate] = []
+        for remote_index in range(int(config.n)):
+            try:
+                # One independently sampled upstream pool per requested parent
+                # avoids mistaking the endpoint's single chosen result for the
+                # complete population.
+                result, progress = self._generate(condition, config, pool_size=1)
+                atoms, cif_url = self._download_atoms(str(result["cif_filename"]))
+                validation = validate_atoms_report(atoms, **config.validation_kwargs())
+                assessments = evaluate_constraints(atoms, validation, condition)
+                energy = float(result["energy"])
+                observables = [
+                    ScientificObservable(
+                        name="relaxed_energy_per_atom",
+                        value=energy,
+                        unit="eV/atom",
+                        role=ObservableRole.POSTPROCESSED_ESTIMATE,
+                        method="alexandria.mapi.gen-crystal",
+                        evidence_level="L2",
+                        source="alexandria.response.energy",
+                        model_name=self.model_name,
+                        independently_validated=False,
+                        detail=(
+                            "The public endpoint reports this value after its relaxation stage but "
+                            "does not identify the calculator or reference zero. Do not relabel it "
+                            "as formation energy, energy above hull, or DFT energy."
+                        ),
+                    )
+                ]
+                candidate_slug = re.sub(
+                    r"[^a-z0-9]+",
+                    "-",
+                    str(result.get("cif_filename", "alexandria")).lower(),
+                ).strip("-")
+                proposals.append(
+                    GeneratedCandidate(
+                        candidate_id=(
+                            f"alexandria-{candidate_slug}-{remote_index + 1:03d}"
+                        ),
+                        backend=self.backend_name,
+                        model_name=self.model_name,
+                        checkpoint_sha256=None,
+                        atoms=atoms,
+                        validation=validation,
+                        condition=condition.as_dict(),
+                        condition_checks={
+                            name: assessment.value for name, assessment in assessments.items()
+                        },
+                        applied_constraints=applied,
+                        unsupported_constraints=unsupported,
+                        sampling=config.as_dict(),
+                        constraint_assessments=assessments,
+                        scientific_observables=observables,
+                        backend_metrics={
+                            "generation_mode": "remote_matra_relaxation_pipeline",
+                            "population_role": "direct_parent",
+                            "remote_parent_index": remote_index,
+                            "reported_frontend_model": "Matra-Genoa-v02-med-0.1",
+                            "upstream": self.base_url,
+                            "upstream_request": result.get("request"),
+                            "upstream_formula": result.get("formula"),
+                            "cif_filename": result.get("cif_filename"),
+                            "cif_url": cif_url,
+                            "progress": progress,
+                            "returned_candidates": 1,
+                            "internal_pool_size": result.get("request", {}).get("pool_size"),
+                        },
+                    )
                 )
-            ]
-            candidate_id = re.sub(
-                r"[^a-z0-9]+",
-                "-",
-                str(result.get("cif_filename", "alexandria")).lower(),
-            ).strip("-")
-            return [
-                GeneratedCandidate(
-                    candidate_id=f"alexandria-{candidate_id}",
-                    backend=self.backend_name,
-                    model_name=self.model_name,
-                    checkpoint_sha256=None,
-                    atoms=atoms,
-                    validation=validation,
-                    condition=condition.as_dict(),
-                    condition_checks={
-                        name: assessment.value for name, assessment in assessments.items()
-                    },
-                    applied_constraints=applied,
-                    unsupported_constraints=unsupported,
-                    sampling=config.as_dict(),
-                    constraint_assessments=assessments,
-                    scientific_observables=observables,
-                    backend_metrics={
-                        "generation_mode": "remote_matra_relaxation_pipeline",
-                        "reported_frontend_model": "Matra-Genoa-v02-med-0.1",
-                        "upstream": self.base_url,
-                        "upstream_request": result.get("request"),
-                        "upstream_formula": result.get("formula"),
-                        "cif_filename": result.get("cif_filename"),
-                        "cif_url": cif_url,
-                        "progress": progress,
-                        "returned_candidates": 1,
-                        "internal_pool_size": result.get("request", {}).get("pool_size"),
-                    },
+            except Exception as exc:
+                validation = ValidationReport(False, "alexandria_service_error", {})
+                assessments = evaluate_constraints(None, validation, condition)
+                proposals.append(
+                    GeneratedCandidate(
+                        candidate_id=f"alexandria-error-{remote_index + 1:05d}",
+                        backend=self.backend_name,
+                        model_name=self.model_name,
+                        checkpoint_sha256=None,
+                        atoms=None,
+                        validation=validation,
+                        condition=condition.as_dict(),
+                        condition_checks={
+                            name: assessment.value for name, assessment in assessments.items()
+                        },
+                        applied_constraints=applied,
+                        unsupported_constraints=unsupported,
+                        sampling=config.as_dict(),
+                        constraint_assessments=assessments,
+                        backend_metrics={
+                            "generation_mode": "remote_matra_relaxation_pipeline",
+                            "population_role": "direct_parent_error",
+                            "remote_parent_index": remote_index,
+                            "upstream": self.base_url,
+                        },
+                        error=f"alexandria_service:{type(exc).__name__}:{exc}",
+                    )
                 )
-            ]
-        except Exception as exc:
-            validation = ValidationReport(False, "alexandria_service_error", {})
-            assessments = evaluate_constraints(None, validation, condition)
-            return [
-                GeneratedCandidate(
-                    candidate_id="alexandria-error-00000",
-                    backend=self.backend_name,
-                    model_name=self.model_name,
-                    checkpoint_sha256=None,
-                    atoms=None,
-                    validation=validation,
-                    condition=condition.as_dict(),
-                    condition_checks={
-                        name: assessment.value for name, assessment in assessments.items()
-                    },
-                    applied_constraints=applied,
-                    unsupported_constraints=unsupported,
-                    sampling=config.as_dict(),
-                    constraint_assessments=assessments,
-                    backend_metrics={
-                        "generation_mode": "remote_matra_relaxation_pipeline",
-                        "upstream": self.base_url,
-                    },
-                    error=f"alexandria_service:{type(exc).__name__}:{exc}",
-                )
-            ]
+        return proposals
 
 
 __all__ = ["AlexandriaMatraBackend"]

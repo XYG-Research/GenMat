@@ -219,6 +219,11 @@ class GenerationRequest:
             forward=int(data.get("forward", 150)),
             decode_jobs=int(data.get("decode_jobs", 0)),
             require_backend_consistency=bool(data.get("require_backend_consistency", True)),
+            mutation_fraction=float(data.get("mutation_fraction", 0.0)),
+            mutation_strain=float(data.get("mutation_strain", 0.08)),
+            mutation_displacement=float(data.get("mutation_displacement", 0.12)),
+            mutation_attempts=int(data.get("mutation_attempts", 24)),
+            preserve_spacegroup=bool(data.get("preserve_spacegroup", True)),
             validation_options=dict(data.get("validation_options") or {}),
         )
         return cls(

@@ -4,7 +4,7 @@ title: "GenIM: symmetry-aware generative crystal structures"
 type: software
 authors:
   - name: "XYG Research"
-version: 0.4.0
+version: 0.5.0
 repository-code: "https://github.com/XYG-Research/GenIM"
 license: BSD-3-Clause
 keywords:

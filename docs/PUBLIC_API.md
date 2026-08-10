@@ -65,9 +65,29 @@ backends, and returns schema version 3. Request defaults are:
   "backend": "auto",
   "n": 4,
   "temperature": 0.8,
-  "seed": 7
+  "seed": 7,
+  "mutation_fraction": 0.0,
+  "preserve_spacegroup": true
 }
 ```
+
+`n` is the final per-backend population target. With a nonzero
+`mutation_fraction`, GenIM first requests `n - round(n * mutation_fraction)`
+direct parents (at least one), then attempts to fill the remainder with
+composition-preserving mutants. `mutation_strain`, `mutation_displacement`, and
+`mutation_attempts` control the bounded mutation search. A mutant is retained
+only after shared structural validation, constraint audit, and uniqueness
+checks. Any observable tied to the parent geometry is invalidated.
+
+The same controls are available from `genim generate-ensemble` as
+`--n-per-backend`, `--spacegroup`, `--mutation-fraction`,
+`--mutation-strain`, `--mutation-displacement`, and `--mutation-attempts`.
+
+`spacegroup_number` accepts an integer in 1..230. The checkpoint-backed GenIM
+adapter converts it to a Hall token and forces it during sampling; local
+outputs and mutants are still independently checked with spglib. A Hall token
+being present in a universally seeded vocabulary does not establish that the
+checkpoint learned that space group from adequate training examples.
 
 `auto` prefers an available local Matra or GenIM checkpoint, then an Alexandria
 remote backend when `GENIM_ENABLE_ALEXANDRIA=1`, and otherwise selects the

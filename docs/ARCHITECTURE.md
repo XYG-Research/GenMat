@@ -23,6 +23,9 @@ Materials Project / JSONL / examples
             GeneratedCandidate + provenance
                          |
                          v
+       direct-parent planning + composition-preserving mutation
+                         |
+                         v
             ASE conversion + shared validation
                          |
                          v
@@ -53,6 +56,9 @@ Materials Project / JSONL / examples
   relaxation adapter with conservative energy semantics.
 - `backends/seed.py`: always-available, composition-exact starting-geometry
   construction without a learned-model claim.
+- `backends/mutation.py`: deterministic population planning, parent-linked
+  composition-preserving mutation, observable invalidation, and independent
+  validation/constraint re-audit.
 - `backends/ranking.py`: deterministic, component-wise scientific triage rank;
   this is a scheduling aid, not a stability classifier.
 - `backends/ensemble.py`: shared cross-backend validation, deduplication,
@@ -90,6 +96,12 @@ Backends declare *how* they apply a constraint (`construction`, `conditioning`,
 is deliberately separate from per-candidate evidence. Matra conditioning and a
 GenIM token mask are generation mechanisms; decoded-structure checks, MLIP,
 convex-hull, DFT, and phonons provide progressively stronger evidence.
+
+Population mutation happens before cross-backend deduplication. It never copies
+energies or other geometry-dependent observables from a parent. When an exact
+space group is requested, local mutation is accepted only if the post-mutation
+spglib check still matches; otherwise the requested population may report a
+shortfall rather than silently weaken the constraint.
 
 `ScientificObservable` separates four roles: `conditioning_target`,
 `model_emission`, `postprocessed_estimate`, and `calculated`. Only an

@@ -360,6 +360,11 @@ class GenerationSettings:
     forward: int = 150
     decode_jobs: int = 0
     require_backend_consistency: bool = True
+    mutation_fraction: float = 0.0
+    mutation_strain: float = 0.08
+    mutation_displacement: float = 0.12
+    mutation_attempts: int = 24
+    preserve_spacegroup: bool = True
     validation_options: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -379,6 +384,20 @@ class GenerationSettings:
             raise ValueError("GenerationSettings.forward must be >= 1")
         if int(self.decode_jobs) < 0:
             raise ValueError("GenerationSettings.decode_jobs must be >= 0")
+        if not np.isfinite(float(self.mutation_fraction)) or not 0.0 <= float(
+            self.mutation_fraction
+        ) <= 1.0:
+            raise ValueError("GenerationSettings.mutation_fraction must be in 0..1")
+        if not np.isfinite(float(self.mutation_strain)) or not 0.0 <= float(
+            self.mutation_strain
+        ) <= 0.5:
+            raise ValueError("GenerationSettings.mutation_strain must be in 0..0.5")
+        if not np.isfinite(float(self.mutation_displacement)) or not 0.0 <= float(
+            self.mutation_displacement
+        ) <= 1.0:
+            raise ValueError("GenerationSettings.mutation_displacement must be in 0..1 angstrom")
+        if int(self.mutation_attempts) < 1:
+            raise ValueError("GenerationSettings.mutation_attempts must be >= 1")
 
     def validation_kwargs(self) -> dict[str, Any]:
         options = dict(DEFAULT_VALIDATION_OPTIONS)

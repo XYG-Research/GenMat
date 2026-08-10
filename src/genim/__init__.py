@@ -15,12 +15,15 @@ from .backends import (
     GenerationSettings,
     GenIMBackend,
     MatraBackend,
+    MUTATION_METHOD,
     ObservableRole,
     ProposalConfig,
     ProposedStructure,
     ScientificObservable,
     ScientificEvaluator,
     inspect_matra_checkpoint,
+    mutate_candidate,
+    population_plan,
     write_ensemble_run,
 )
 from .chem import ChemistryPolicy
@@ -46,6 +49,7 @@ __all__ = [
     "GenIMBackend",
     "GeneratedStructure",
     "MatraBackend",
+    "MUTATION_METHOD",
     "ObservableRole",
     "ProposalConfig",
     "ProposedStructure",
@@ -56,7 +60,9 @@ __all__ = [
     "ServiceConfig",
     "__version__",
     "inspect_matra_checkpoint",
+    "mutate_candidate",
+    "population_plan",
     "write_ensemble_run",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

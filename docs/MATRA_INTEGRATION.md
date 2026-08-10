@@ -1,6 +1,6 @@
 # Matra integration
 
-GenIM 0.4 treats Matra Genoa as an optional generation backend. The integration
+GenIM 0.5 treats Matra Genoa as an optional generation backend. The integration
 combines Matra's condition-aware Wyckoff representation with GenIM's shared ASE
 validation, provenance, cross-model deduplication, MLIP/hull screening, and
 benchmark reporting.
@@ -16,6 +16,24 @@ The remote energy is recorded as `relaxed_energy_per_atom`, role
 `postprocessed_estimate`. The public response does not identify the calculator,
 energy reference, or convex-hull reference set, so it must not be relabelled as
 formation energy, DFT energy, or `energy_above_hull`.
+
+## Population diversity and mutation
+
+For `n > 1`, a configured mutation fraction splits the final population into
+independent Matra/Alexandria parent calls and GenIM mutants. This avoids treating
+one upstream internal `pool_size` as if it returned `n` independent structures
+and reduces reliance on a single learned-mode preference.
+
+Mutants preserve atom counts and element identities. Cell strain respects the
+requested crystal-system metric. Local Python workflows project internal-site
+motion onto each site stabilizer and propagate it across the complete symmetry
+orbit; occupancy swaps require unlike orbits with identical multiplicity.
+Every result receives full spglib revalidation. The edge Studio cannot run
+spglib and therefore uses the more conservative cell-metric mutation and labels
+mutant symmetry `not_evaluated` instead of claiming an exact space group.
+
+Relaxation energy belongs to the parent geometry. Mutants receive no inherited
+energy or hull observable and must be independently relaxed and rescored.
 
 ## License boundary
 
@@ -67,10 +85,12 @@ in the prompt is a `conditioning_target`. Neither is independent evidence. A
 later evaluator may add an independently validated `calculated` observable and
 then reconcile stability or hull constraints using the declared reference set.
 
-GenIM currently applies exact element-set conditioning through its vocabulary
-mask. Other Matra-specific conditions are recorded as unsupported for the
-GenIM backend and are still evaluated after decoding where possible. Nothing
-is silently reported as enforced.
+GenIM applies exact element-set conditioning through its vocabulary mask and
+exact space-group conditioning by forcing a resolved Hall token. Other
+Matra-specific conditions are recorded as unsupported for the GenIM backend and
+are still evaluated after decoding where possible. Hall-token conditioning is
+also independently checked after decode; nothing is silently reported as
+enforced.
 
 ## Output contract
 

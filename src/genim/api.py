@@ -24,6 +24,8 @@ class SamplingConfig:
     temperature: float = 1.0
     top_k: int = 0
     seed: int | None = None
+    fixed_hall: int | None = None
+    fixed_spacegroup: int | None = None
 
 
 @dataclass
@@ -104,6 +106,66 @@ class GenIM:
             **self.checkpoint.metadata,
         }
 
+    def _resolve_forced_hall(self, config: SamplingConfig) -> tuple[int | None, int | None, str | None]:
+        """Resolve an exact Hall-token condition for reusable checkpoint sampling."""
+
+        if config.fixed_hall is not None and config.fixed_spacegroup is not None:
+            raise ValueError("Specify only one of fixed_hall and fixed_spacegroup")
+
+        hall_to_id = {
+            int(token[5:]): int(index)
+            for token, index in self.checkpoint.vocab.items()
+            if token.startswith("HALL_")
+        }
+        if config.fixed_hall is not None:
+            hall = int(config.fixed_hall)
+            if not 1 <= hall <= 530:
+                raise ValueError("fixed_hall must be in 1..530")
+            hall_id = hall_to_id.get(hall)
+            if hall_id is None:
+                raise ValueError(
+                    f"fixed_hall={hall} is absent from the checkpoint vocabulary; "
+                    "seed or train the required Hall token"
+                )
+            return hall_id, hall, "explicit_hall"
+
+        if config.fixed_spacegroup is None:
+            return None, None, None
+
+        spacegroup = int(config.fixed_spacegroup)
+        if not 1 <= spacegroup <= 230:
+            raise ValueError("fixed_spacegroup must be in 1..230")
+
+        symmetry_stats = self.checkpoint.blob.get("symmetry_stats")
+        if isinstance(symmetry_stats, dict):
+            halls_by_sg = symmetry_stats.get("halls_by_sg")
+            if isinstance(halls_by_sg, dict):
+                trained_halls = halls_by_sg.get(str(spacegroup), halls_by_sg.get(spacegroup))
+                if isinstance(trained_halls, list):
+                    for value in trained_halls:
+                        hall = int(value)
+                        if hall in hall_to_id:
+                            return hall_to_id[hall], hall, "checkpoint_training_statistics"
+
+        import spglib
+
+        for hall in range(1, 531):
+            spacegroup_type = spglib.get_spacegroup_type(hall)
+            if spacegroup_type is None:
+                continue
+            number = int(
+                getattr(spacegroup_type, "number")
+                if hasattr(spacegroup_type, "number")
+                else spacegroup_type["number"]
+            )
+            if number == spacegroup and hall in hall_to_id:
+                return hall_to_id[hall], hall, "representative_hall_from_spglib"
+
+        raise ValueError(
+            f"No Hall token for space group {spacegroup} is present in the checkpoint vocabulary; "
+            "vocabulary coverage is required and does not by itself guarantee learned competence"
+        )
+
     def sample(
         self,
         *,
@@ -119,6 +181,7 @@ class GenIM:
             raise ValueError("SamplingConfig.n must be >= 0")
         if int(config.batch_size) < 1:
             raise ValueError("SamplingConfig.batch_size must be >= 1")
+        forced_hall_id, forced_hall, hall_source = self._resolve_forced_hall(config)
         required_max_len = 1 + 1 + 3 + 3 + int(config.max_sites) * 5 + 1
         if required_max_len > int(self.checkpoint.model_config.max_len):
             raise ValueError("max_sites is incompatible with the checkpoint maximum sequence length")
@@ -157,7 +220,12 @@ class GenIM:
             "vol_per_atom_max": 100.0,
         }
         options.update(validation_options or {})
-        sampling_record = asdict(config)
+        sampling_record = {
+            **asdict(config),
+            "forced_hall_id": forced_hall_id,
+            "forced_hall_number": forced_hall,
+            "hall_resolution_source": hall_source,
+        }
         results: list[GeneratedStructure] = []
         remaining = int(config.n)
         while remaining:
@@ -172,6 +240,7 @@ class GenIM:
                 max_sites=int(config.max_sites),
                 min_sites=int(config.min_sites),
                 restrict_elements=restricted,
+                forced_hall_ids=[forced_hall_id] * batch_n if forced_hall_id is not None else None,
                 device=self.checkpoint.device,
             )
             for ids in ids_batch:

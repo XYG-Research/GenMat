@@ -49,6 +49,13 @@ values do not satisfy stability constraints. A mocked Alexandria response must
 exercise the public relaxation-energy path without consuming the live rate
 limit.
 
+Population tests must verify that `n` is the final target, the requested
+mutation fraction yields the planned parent/mutant split, every mutant preserves
+composition and parent lineage, duplicates are rejected, and parent observables
+are not copied. Exact-space-group tests must force the expected Hall token and
+revalidate every retained local mutant with spglib. A shortfall is acceptable
+when no valid unique mutant satisfies the constraint, but it must be reported.
+
 ## Multi-backend acceptance
 
 Unit tests must cover constraint translation, capability declarations,

@@ -3,6 +3,25 @@
 All notable user-visible changes are recorded here. The project follows
 semantic versioning for public APIs and serialized schemas.
 
+## 0.5.0
+
+- Added fixed-size population generation with configurable direct-parent and
+  composition-preserving mutant fractions.
+- Mutants use crystal-system-compatible cell strain, site-stabilizer-projected
+  Wyckoff-orbit motion, and compatible whole-orbit occupancy swaps. Every mutant
+  is validated, constraint-audited, deduplicated, and linked to its parent.
+- Parent energies and other geometry-dependent observables are invalidated on
+  mutation instead of being copied to a new geometry.
+- `GenIM.sample()` and `GenIMBackend` now condition exact space-group requests
+  by forcing the corresponding Hall token, then independently verify decoded
+  symmetry with spglib.
+- Alexandria population requests now make independent upstream generation and
+  relaxation calls for direct parents; `n` means final returned population,
+  not merely an upstream internal pool size.
+- GenIM Studio defaults to the real Matra/Alexandria generation-and-relaxation
+  path and no longer disguises a remote failure as an algorithmic seed result.
+  Geometry seeds remain available only as an explicit backend choice.
+
 ## 0.4.0
 
 - Added schema-version-3 scientific observables that distinguish conditioning

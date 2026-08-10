@@ -29,6 +29,8 @@ from genim.backends import (
     write_ensemble_run,
 )
 from genim.backends.matra import extract_matra_observables
+from genim.backends.mutation import mutate_candidate
+from genim.backends.base import evaluate_constraints
 from genim.checkpoints import CheckpointError, sha256_file
 from genim.validate import validate_atoms_report
 
@@ -248,6 +250,111 @@ def test_matra_property_blocks_are_reported_without_becoming_energy_evidence() -
         checkpoint_sha256=None,
     )
     assert conditioned[0].role is ObservableRole.CONDITIONING_TARGET
+
+
+def test_population_mutation_preserves_composition_and_requested_spacegroup() -> None:
+    atoms = bulk("NaCl", "rocksalt", a=5.64)
+    backend = MatraBackend.from_model(
+        _FakeMatraModel(atoms),
+        model_name="fake-matra-population",
+        checkpoint_sha256="b" * 64,
+    )
+    run = EnsembleGenerator([backend]).run(
+        condition=GenerationConstraints(
+            elements=("Na", "Cl"),
+            stoichiometry=(1, 1),
+            spacegroup_number=225,
+        ),
+        config=GenerationSettings(
+            n=4,
+            mutation_fraction=0.5,
+            mutation_strain=0.12,
+            seed=19,
+            require_backend_consistency=False,
+        ),
+    )
+    assert len(run.candidates) == 4
+    mutants = [
+        candidate
+        for candidate in run.candidates
+        if candidate.backend_metrics.get("population_role") == "mutant"
+    ]
+    assert len(mutants) == 2
+    assert all(
+        sorted(candidate.atoms.get_chemical_symbols()) == ["Cl", "Na"]
+        for candidate in mutants
+        if candidate.atoms is not None
+    )
+    assert all(candidate.condition_checks["spacegroup_number"] is True for candidate in mutants)
+    assert all(candidate.validation.metrics["spacegroup_number"] == 225 for candidate in mutants)
+    assert all(candidate.scientific_observables == [] for candidate in mutants)
+    assert all(
+        candidate.backend_metrics["mutation_method"]
+        == "genim_composition_preserving_mutation_v2"
+        for candidate in mutants
+    )
+
+
+def test_symmetry_orbit_mutation_preserves_p_minus_one_and_moves_internal_coordinate() -> None:
+    atoms = Atoms(
+        "Si2",
+        scaled_positions=[[0.13, 0.21, 0.34], [0.87, 0.79, 0.66]],
+        cell=np.diag([4.1, 5.2, 6.3]),
+        pbc=True,
+    )
+    settings = GenerationSettings(
+        seed=11,
+        mutation_strain=0.0,
+        mutation_displacement=0.08,
+        preserve_spacegroup=True,
+        validation_options={"min_coordination": 0},
+    )
+    report = validate_atoms_report(atoms, **settings.validation_kwargs())
+    assert report.valid
+    assert report.metrics["spacegroup_number"] == 2
+    condition = GenerationConstraints(elements=("Si",), spacegroup_number=2)
+    constraint_assessments = evaluate_constraints(atoms, report, condition)
+    parent = GeneratedCandidate(
+        candidate_id="p-minus-one-parent",
+        backend="static",
+        model_name="symmetry-test",
+        checkpoint_sha256=None,
+        atoms=atoms,
+        validation=report,
+        condition=condition.as_dict(),
+        condition_checks={
+            name: assessment.value for name, assessment in constraint_assessments.items()
+        },
+        applied_constraints=["elements", "spacegroup_number"],
+        unsupported_constraints=[],
+        sampling={},
+        constraint_assessments=constraint_assessments,
+    )
+    child = mutate_candidate(
+        parent,
+        condition=condition,
+        config=settings,
+        mutation_index=0,
+        occupied_fingerprints=set(),
+    )
+    assert child is not None
+    assert child.validation.metrics["spacegroup_number"] == 2
+    assert child.condition_checks["spacegroup_number"] is True
+    assert child.atoms is not None
+    assert child.atoms.get_chemical_formula() == atoms.get_chemical_formula()
+    assert not np.allclose(
+        child.atoms.get_scaled_positions(wrap=True),
+        atoms.get_scaled_positions(wrap=True),
+    )
+    assert child.backend_metrics["symmetry_orbit_mutation"] is True
+
+
+def test_generation_settings_validate_mutation_controls() -> None:
+    assert GenerationSettings(n=8, mutation_fraction=0.5).mutation_fraction == 0.5
+    with pytest.raises(ValueError, match="mutation_fraction"):
+        GenerationSettings(mutation_fraction=1.1)
+    with pytest.raises(ValueError, match="mutation_strain"):
+        GenerationSettings(mutation_strain=0.6)
 
 
 def test_ensemble_deduplicates_across_backends_and_writes_audit_files(tmp_path: Path) -> None:

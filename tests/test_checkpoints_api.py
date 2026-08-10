@@ -82,6 +82,42 @@ def test_public_api_returns_provenance_even_for_rejected_candidates(tmp_path: Pa
     assert all(result.validation.reason for result in results)
 
 
+def test_public_api_forces_hall_token_for_requested_spacegroup(tmp_path: Path) -> None:
+    path = tmp_path / "model.pt"
+    _tiny_checkpoint(path)
+    generator = GenIM.from_checkpoint(path, device="cpu")
+    results = generator.sample(
+        config=SamplingConfig(
+            n=2,
+            batch_size=2,
+            max_sites=1,
+            min_sites=1,
+            top_k=1,
+            seed=7,
+            fixed_spacegroup=1,
+        ),
+        chemistry=ChemistryPolicy(mode="any", allowed_elements=["Na", "Cl"]),
+    )
+    assert len(results) == 2
+    assert all(result.tokens[1] == "HALL_1" for result in results)
+    assert all(result.sampling["forced_hall_number"] == 1 for result in results)
+    assert all(
+        result.sampling["hall_resolution_source"] == "representative_hall_from_spglib"
+        for result in results
+    )
+
+
+def test_public_api_rejects_spacegroup_absent_from_checkpoint_vocab(tmp_path: Path) -> None:
+    path = tmp_path / "model.pt"
+    _tiny_checkpoint(path)
+    generator = GenIM.from_checkpoint(path, device="cpu")
+    with pytest.raises(ValueError, match="No Hall token for space group 225"):
+        generator.sample(
+            config=SamplingConfig(n=1, max_sites=1, fixed_spacegroup=225),
+            chemistry=ChemistryPolicy(mode="any", allowed_elements=["Na", "Cl"]),
+        )
+
+
 def test_training_writes_v2_provenance_and_validation_loss(tmp_path: Path) -> None:
     tokens = ["<PAD>", "<BOS>", "<EOS>", "E_Fe", "E_O"]
     vocab = {token: index for index, token in enumerate(tokens)}

@@ -45,6 +45,31 @@ def test_omitted_seed_uses_documented_deterministic_default() -> None:
     assert first["candidates"][0]["structure"] == second["candidates"][0]["structure"]
 
 
+def test_service_returns_fixed_population_with_composition_preserving_mutants() -> None:
+    response = seed_only_service().generate(
+        {
+            "formula": "LiFePO4",
+            "n": 4,
+            "seed": 23,
+            "mutation_fraction": 0.5,
+        }
+    )
+    assert response["request"]["settings"]["mutation_fraction"] == 0.5
+    assert len(response["candidates"]) == 4
+    mutants = [
+        row
+        for row in response["candidates"]
+        if row["backend_metrics"].get("population_role") == "mutant"
+    ]
+    assert len(mutants) == 2
+    assert all(
+        Counter(row["structure"]["species"])
+        == Counter({"Li": 1, "Fe": 1, "P": 1, "O": 4})
+        for row in mutants
+    )
+    assert all(row["scientific_observables"] == [] for row in mutants)
+
+
 def test_arbitrary_composition_has_explicit_constraint_evidence() -> None:
     response = seed_only_service().generate(
         {
