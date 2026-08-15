@@ -1,14 +1,18 @@
-# GenIM：面向通用材料化学的对称性感知晶体生成
+# GenMat：通用生成式材料发现
 
 [English](README.md) | **简体中文**
 
-GenIM 是一个用于晶体结构构建、生成、验证、基准评测与筛选的 Python
+GenMat 是一个用于晶体结构构建、生成、验证、基准评测与筛选的 Python
 软件包和命令行工具。0.4 版本新增了带证据语义的 Matra/Alexandria 能量、
 化学感知的种子几何和透明科学排序；0.3 版本新增了可审计的多模型生成后端；
 0.2 版本不再把
 化学体系硬编码为金属间化合物：
 氧化物、氮化物、卤化物、碳化物、半导体、元素固体和金属间化合物可以
 共用 Hall/Wyckoff—Transformer 流程。
+
+为保证既有科研流程可复现，安装与导入命名空间仍为 `genim`，`GenIM`
+类以及 `genim`/`genim-api` 命令继续作为兼容接口。新代码可以使用
+`from genim import GenMat` 与 `genmat`/`genmat-api` 命令。
 
 模型以空间群、Wyckoff 位点、离散晶格参数和坐标为序列表示，生成结果
 解码为 ASE `Atoms`，随后进行几何/对称性检查、去重，并可选择使用 MLIP

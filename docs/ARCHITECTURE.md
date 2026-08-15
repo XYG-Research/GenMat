@@ -1,4 +1,4 @@
-# Architecture
+# GenMat architecture
 
 ```text
 Materials Project / JSONL / examples
@@ -10,7 +10,7 @@ Materials Project / JSONL / examples
  Hall/Wyckoff token dataset + provenance
               |
               v
- Transformer training -> versioned GenIM checkpoint
+ Transformer training -> versioned GenMat checkpoint
               |
               +----------------------+----------------------+----------------+
               |                      |                      |                |

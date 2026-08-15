@@ -1,8 +1,8 @@
-# GenIM: symmetry-aware generative crystal structures
+# GenMat: generative materials discovery
 
 **English** | [简体中文](README.zh-CN.md)
 
-GenIM is a Python package and command-line toolkit for building, generating,
+GenMat is a Python package and command-line toolkit for building, generating,
 validating, ranking, benchmarking, and screening periodic crystal structures.
 Version 0.5 adds controlled, composition-preserving population mutation and
 exact Hall-token space-group conditioning. Version 0.4 added evidence-aware
@@ -12,6 +12,10 @@ multi-model proposal backends. Version 0.2 made the chemistry
 domain explicit and general-purpose: oxides, nitrides,
 halides, carbides, semiconductors, elemental solids, and intermetallics can use
 the same Hall/Wyckoff generation pipeline.
+
+The install/import namespace remains `genim`, and the `GenIM` class and
+`genim`/`genim-api` commands remain supported compatibility interfaces. New code
+may use `from genim import GenMat` and the `genmat`/`genmat-api` commands.
 
 The representation combines space-group symmetry, Wyckoff sites, discretized
 lattice/coordinate tokens, and a causal Transformer. Generated candidates are

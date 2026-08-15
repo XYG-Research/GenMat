@@ -72,7 +72,7 @@ class GeneratedStructure:
 
 
 class GenIM:
-    """Reusable Python API for checkpoint-backed crystal generation."""
+    """Legacy-compatible Python API for checkpoint-backed crystal generation."""
 
     def __init__(self, checkpoint: LoadedCheckpoint):
         self.checkpoint = checkpoint
@@ -293,4 +293,8 @@ class GenIM:
         return paths
 
 
-__all__ = ["GenIM", "GeneratedStructure", "SamplingConfig"]
+class GenMat(GenIM):
+    """Primary GenMat API; inherits the stable GenIM checkpoint interface."""
+
+
+__all__ = ["GenMat", "GenIM", "GeneratedStructure", "SamplingConfig"]

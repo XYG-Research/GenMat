@@ -3,6 +3,14 @@
 All notable user-visible changes are recorded here. The project follows
 semantic versioning for public APIs and serialized schemas.
 
+## Unreleased
+
+- Renamed the outward-facing software and Studio brand to GenMat to reflect its
+  general-materials scope. The `genim` package, backend identifier, schema
+  fields, checkpoint format, and legacy commands remain compatibility-stable.
+- Added the public `GenMat` API class plus `genmat` and `genmat-api` command
+  aliases without removing `GenIM`, `genim`, or `genim-api`.
+
 ## 0.5.0
 
 - Added fixed-size population generation with configurable direct-parent and

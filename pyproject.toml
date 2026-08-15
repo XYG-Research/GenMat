@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "genim"
 version = "0.5.0"
-description = "Multi-backend, symmetry-aware crystal generation toolkit for general materials chemistry."
+description = "GenMat: a multi-backend, symmetry-aware crystal generation toolkit for general materials chemistry."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "BSD-3-Clause"
@@ -73,6 +73,8 @@ Repository = "https://github.com/XYG-Research/GenIM"
 Issues = "https://github.com/XYG-Research/GenIM/issues"
 
 [project.scripts]
+genmat = "genim.cli:main"
+genmat-api = "genim.server:main"
 genim = "genim.cli:main"
 genim-api = "genim.server:main"
 

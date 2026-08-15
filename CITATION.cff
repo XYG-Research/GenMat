@@ -1,6 +1,6 @@
 cff-version: 1.2.0
-message: "If you use GenIM, cite this software and the method papers referenced in the README."
-title: "GenIM: symmetry-aware generative crystal structures"
+message: "If you use GenMat (formerly GenIM), cite this software and the method papers referenced in the README."
+title: "GenMat: generative materials discovery"
 type: software
 authors:
   - name: "XYG Research"

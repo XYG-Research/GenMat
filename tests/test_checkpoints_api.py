@@ -5,10 +5,14 @@ from pathlib import Path
 import torch
 import pytest
 
-from genim import ChemistryPolicy, GenIM, SamplingConfig
+from genim import ChemistryPolicy, GenMat, GenIM, SamplingConfig
 from genim.checkpoints import CheckpointError, load_model_checkpoint, sha256_file
 from genim.model import CausalTransformerLM, ModelConfig
 from genim.train import train_lm
+
+
+def test_genmat_is_primary_api_with_genim_compatibility() -> None:
+    assert issubclass(GenMat, GenIM)
 
 
 def _tiny_checkpoint(path: Path) -> None:

@@ -1,4 +1,4 @@
-from .api import GenIM, GeneratedStructure, SamplingConfig
+from .api import GenMat, GenIM, GeneratedStructure, SamplingConfig
 from .backends import (
     AlgorithmicSeedBackend,
     AlexandriaMatraBackend,
@@ -45,6 +45,7 @@ __all__ = [
     "GenerationConstraints",
     "GenerationSettings",
     "GenerationRequest",
+    "GenMat",
     "GenIM",
     "GenIMBackend",
     "GeneratedStructure",
@@ -59,6 +60,7 @@ __all__ = [
     "GeneratorService",
     "ServiceConfig",
     "__version__",
+    "__title__",
     "inspect_matra_checkpoint",
     "mutate_candidate",
     "population_plan",
@@ -66,3 +68,4 @@ __all__ = [
 ]
 
 __version__ = "0.5.0"
+__title__ = "GenMat"
