@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from genim.backends import AlgorithmicSeedBackend, GenerationConstraints, GenerationSettings
-from genim.cli import main
-from genim.models import ModelRegistry, ModelSpec, UnknownModelError
-from genim.server import create_app
-from genim.service import (
+from genmat.backends import AlgorithmicSeedBackend, GenerationConstraints, GenerationSettings
+from genmat.cli import main
+from genmat.models import ModelRegistry, ModelSpec, UnknownModelError
+from genmat.server import create_app
+from genmat.service import (
     BackendUnavailableError,
     GenerationRequest,
     GeneratorService,
@@ -156,7 +156,7 @@ def test_model_catalog_is_available_through_service_and_http() -> None:
     assert len(response.json()["models"]) == len(ids)
     info = client.get("/v1/models/genmat/mp-fullsg-legacy@0.1.0")
     assert info.status_code == 200
-    assert info.json()["backend"] == "genim"
+    assert info.json()["backend"] == "genmat"
     missing = client.get("/v1/models/not/a-model")
     assert missing.status_code == 404
 
@@ -290,7 +290,7 @@ def test_models_cli_preserves_environment_offline_mode(
 
     monkeypatch.setenv("GENMAT_OFFLINE", "1")
     monkeypatch.setattr(
-        "genim.commands.models.ModelRegistry.default",
+        "genmat.commands.models.ModelRegistry.default",
         lambda **kwargs: Registry(),
     )
     assert main(["models", "pull", "test/model@1"]) == 0
@@ -313,7 +313,7 @@ def test_ensemble_cli_preserves_environment_offline_mode(
 
     monkeypatch.setenv("GENMAT_OFFLINE", "1")
     monkeypatch.setattr(
-        "genim.commands.ensemble.ModelRegistry.default",
+        "genmat.commands.ensemble.ModelRegistry.default",
         lambda **kwargs: Registry(),
     )
     with pytest.raises(StopAfterResolution):
@@ -344,8 +344,8 @@ def test_canonical_auxiliary_environment_names_precede_legacy(
     monkeypatch.setenv("GENMAT_OVITO_ROOT", str(canonical / "ovito"))
     monkeypatch.setenv("GENIM_OVITO_ROOT", str(legacy / "ovito"))
 
-    from genim.mlip import _find_local_omat24_checkpoint
-    from genim.ovito_tachyon_panel import _default_ovito_root
+    from genmat.mlip import _find_local_omat24_checkpoint
+    from genmat.ovito_tachyon_panel import _default_ovito_root
 
     assert _find_local_omat24_checkpoint(filename="esen.pt") == checkpoint.resolve()
     assert _default_ovito_root() == canonical / "ovito"

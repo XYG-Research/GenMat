@@ -409,7 +409,7 @@ assets and record SHA256 values. Format-v2 checkpoints contain:
 
 - `format_version`;
 - strict `model_config`, vocabulary, tokenizer config, and weights;
-- GenMat version (legacy files may use the `genim_version` key), creation time,
+- canonical `genmat_version` plus the compatibility `genim_version` key, creation time,
   seed, and training steps;
 - source token-dataset SHA256 and source-dataset provenance;
 - dataset and symmetry statistics.

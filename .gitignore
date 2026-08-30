@@ -27,9 +27,9 @@ env/
 
 # ---- Large data / model weights (distributed via GitHub Releases) ----
 data/
-!src/genim/data/
-!src/genim/data/__init__.py
-!src/genim/data/model-catalog-v1.json
+!src/genmat/data/
+!src/genmat/data/__init__.py
+!src/genmat/data/model-catalog-v1.json
 checkpoints/
 output/
 tmp/

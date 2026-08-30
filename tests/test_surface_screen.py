@@ -4,7 +4,7 @@ import csv
 
 from pymatgen.core import Lattice, Structure
 
-from genim.surface_screen import (
+from genmat.surface_screen import (
     SurfaceScreenConfig,
     final_termination_class,
     json_ready,

@@ -24,6 +24,7 @@ Format 2 additionally writes:
 
 ```text
 format_version = 2
+metadata.genmat_version # canonical writer version
 metadata.genim_version  # retained serialized compatibility key
 metadata.created_at_utc
 metadata.training_seed

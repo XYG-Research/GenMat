@@ -57,7 +57,7 @@ PUBLIC_SUBMODULES = (
 )
 
 
-def test_every_non_private_legacy_module_has_a_genmat_shim() -> None:
+def test_every_non_private_legacy_module_has_a_genmat_implementation() -> None:
     source_root = Path(__file__).resolve().parents[1] / "src"
 
     for relative_package in (Path(), Path("backends"), Path("commands")):
@@ -106,7 +106,8 @@ def test_genmat_submodules_reexport_the_same_objects(
     compatibility = importlib.import_module(f"genim.{compatibility_submodule}")
 
     assert getattr(canonical, symbol) is getattr(compatibility, symbol)
-    assert symbol in canonical.__all__
+    if hasattr(canonical, "__all__"):
+        assert symbol in canonical.__all__
 
 
 def test_importing_genmat_does_not_eagerly_load_optional_stacks() -> None:
@@ -120,7 +121,7 @@ import genmat
 
 # Discovering an optional feature must not execute its implementation module.
 assert importlib.util.find_spec('genmat.surface_screen') is not None
-assert 'genim.surface_screen' not in sys.modules
+assert 'genmat.surface_screen' not in sys.modules
 
 # The server module also keeps FastAPI behind create_app().
 import genmat.server

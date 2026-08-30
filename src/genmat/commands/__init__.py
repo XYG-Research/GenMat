@@ -1,3 +1,1 @@
-"""Canonical namespace for composable GenMat CLI commands."""
-
-__all__: list[str] = []
+"""Composable CLI command registration and execution helpers."""

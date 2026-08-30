@@ -10,7 +10,7 @@ import torch
 from ase import Atoms
 from ase.build import bulk
 
-from genim.backends import (
+from genmat.backends import (
     BackendCapabilities,
     ConstraintApplication,
     ConstraintStatus,
@@ -28,11 +28,11 @@ from genim.backends import (
     inspect_matra_checkpoint,
     write_ensemble_run,
 )
-from genim.backends.matra import extract_matra_observables
-from genim.backends.mutation import mutate_candidate
-from genim.backends.base import evaluate_constraints
-from genim.checkpoints import CheckpointError, sha256_file
-from genim.validate import validate_atoms_report
+from genmat.backends.matra import extract_matra_observables
+from genmat.backends.mutation import mutate_candidate
+from genmat.backends.base import evaluate_constraints
+from genmat.checkpoints import CheckpointError, sha256_file
+from genmat.validate import validate_atoms_report
 
 
 class _FakeSpecies:

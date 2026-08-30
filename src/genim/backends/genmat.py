@@ -1,4 +1,4 @@
-"""Backward-compatible import path for the GenMat checkpoint backend."""
+"""Backward-compatible alias for :mod:`genmat.backends.genim`."""
 
 from .._compat import reexport
 

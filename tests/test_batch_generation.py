@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from genim.generate import sample_sequences
+from genmat.generate import sample_sequences
 
 
 class _CountingModel(torch.nn.Module):

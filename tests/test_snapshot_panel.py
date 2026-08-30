@@ -6,7 +6,7 @@ from ase import Atoms
 from ase.io import write
 from PIL import Image
 
-from genim.snapshot_panel import _guess_bonds, _label_display_text, _label_segments, _periodic_bonds, _render_structure_square, _select_snapshot_items, render_snapshot_panel
+from genmat.snapshot_panel import _guess_bonds, _label_display_text, _label_segments, _periodic_bonds, _render_structure_square, _select_snapshot_items, render_snapshot_panel
 
 
 def _write_demo_cif(path: Path, symbols: list[str]) -> None:
@@ -27,7 +27,7 @@ def _write_demo_cif(path: Path, symbols: list[str]) -> None:
 def test_select_snapshot_items_uses_id_range_and_actual_counts(tmp_path: Path) -> None:
     cif_dir = tmp_path / "Fe-Co-Ni-Al_4el"
     cif_dir.mkdir()
-    _write_demo_cif(cif_dir / "genim_00009.cif", ["Fe", "Co", "Ni", "Al"])
+    _write_demo_cif(cif_dir / "genmat_00009.cif", ["Fe", "Co", "Ni", "Al"])
     _write_demo_cif(cif_dir / "genim_00015.cif", ["Fe", "Fe", "Co", "Al"])
 
     items = _select_snapshot_items(cif_dir=cif_dir, n=5, seed=7, id_start=9, id_end=10)
@@ -40,7 +40,7 @@ def test_select_snapshot_items_uses_id_range_and_actual_counts(tmp_path: Path) -
 def test_render_snapshot_panel_smoke(tmp_path: Path) -> None:
     cif_dir = tmp_path / "Fe-Co-Ni-Al_4el"
     cif_dir.mkdir()
-    _write_demo_cif(cif_dir / "genim_00009.cif", ["Fe", "Co", "Ni", "Al"])
+    _write_demo_cif(cif_dir / "genmat_00009.cif", ["Fe", "Co", "Ni", "Al"])
     _write_demo_cif(cif_dir / "genim_00010.cif", ["Fe", "Fe", "Co", "Al"])
 
     out_path = render_snapshot_panel(

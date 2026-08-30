@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import genim.cli as cli
+import genmat.cli as cli
 
 
 def test_interactive_gen_accepts_explicit_percent_mode(monkeypatch, tmp_path: Path) -> None:
