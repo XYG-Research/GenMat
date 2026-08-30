@@ -2,7 +2,7 @@
 
 ## Intended use
 
-GenIM is a hypothesis-generation toolkit for periodic crystal structures. It is
+GenMat is a hypothesis-generation toolkit for periodic crystal structures. It is
 appropriate for generating symmetry-consistent candidates, exploring constrained
 composition/prototype spaces, comparing generation settings, and preparing
 candidates for higher-fidelity calculations.
@@ -13,7 +13,7 @@ structures.
 
 ## Evidence levels
 
-| Level | GenIM stage | Claim supported |
+| Level | GenMat stage | Claim supported |
 |---|---|---|
 | L0 | grammar + decode | representationally well formed |
 | L1 | geometry + symmetry validation | no detected fast-check failure |

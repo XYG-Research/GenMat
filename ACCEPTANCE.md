@@ -1,4 +1,4 @@
-# GenIM acceptance protocol
+# GenMat acceptance protocol
 
 This document defines release acceptance for the general-chemistry package. It
 does not preserve historical benchmark numbers because those numbers describe a
@@ -9,10 +9,12 @@ specific intermetallic checkpoint rather than the software's universal scope.
 ```powershell
 python -m pip install -e ".[api,hull,test]"
 python -m pytest -q
-python -m compileall -q src/genim
-genim --help
-genim generate-ensemble --help
-genim serve --help
+python -m compileall -q src/genmat src/genim
+genmat --help
+genmat models list
+genmat generate-ensemble --help
+genmat serve --help
+genim --help  # compatibility entry point
 ```
 
 The suite must pass on every supported Python version in CI. No secrets, model
@@ -21,14 +23,14 @@ weights, generated output, or Materials Project data may be committed.
 ## Offline pipeline
 
 ```powershell
-genim examples-make --out data/examples.jsonl
-genim preprocess --in data/examples.jsonl --out data/examples.tokens.pt `
+genmat examples-make --out data/examples.jsonl
+genmat preprocess --in data/examples.jsonl --out data/examples.tokens.pt `
   --seed-all-elements --seed-all-hall --chemistry any
-genim train --data data/examples.tokens.pt --out checkpoints/example.pt `
+genmat train --data data/examples.tokens.pt --out checkpoints/example.pt `
   --steps 5 --element-emb features --element-feature-set periodic8
-genim generate --ckpt checkpoints/example.pt --n 2 --out-dir output/smoke `
+genmat generate --ckpt checkpoints/example.pt --n 2 --out-dir output/smoke `
   --chemistry any --nelements-min 1
-genim benchmark --cif-dir output/smoke --out output/smoke/benchmark.json
+genmat benchmark --cif-dir output/smoke --out output/smoke/benchmark.json
 ```
 
 This is a software smoke test, not a model-quality benchmark.
@@ -42,6 +44,12 @@ reason, and an explicit `learned_model=false` provenance field. The
 `/v1/capabilities` endpoint must declare the algorithmic backend. Explicit
 requests for unavailable checkpoint backends must fail rather than silently
 substitute the algorithmic seed.
+
+`/v1/models` must expose the packaged catalog without loading model weights.
+Generation by a model ID or alias must record the immutable resolved ID.
+License-gated entries must not become runnable until the server administrator
+has acknowledged their separate terms. Arbitrary client-provided asset URLs are
+not valid model references.
 
 Schema-v3 tests must also verify scientific-observable roles, model/calculation
 provenance, ranking components, and the rule that prompt/model-emitted hull
@@ -68,7 +76,7 @@ When the local research-licensed Matra package and checkpoint are available:
 
 ```powershell
 python -m pip install -e ..\matra-genoa-preview
-genim matra-checkpoint-info `
+genmat matra-checkpoint-info `
   --ckpt ..\matra-genoa-preview\checkpoints\matra-v02-med.ckpt `
   --expected-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa
 ```
@@ -82,7 +90,7 @@ validation path. Generated smoke output remains gitignored.
 For each published checkpoint, archive:
 
 - asset name, byte size, SHA256, and format version;
-- GenIM commit and package version;
+- GenMat commit and package version;
 - full model/tokenizer configuration;
 - training seed and steps;
 - input token-dataset SHA256 and raw-data provenance;

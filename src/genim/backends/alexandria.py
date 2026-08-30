@@ -28,7 +28,7 @@ class AlexandriaMatraBackend:
 
     The upstream endpoint returns one chosen structure from an internal pool.
     Its public response includes an ``energy`` scalar but does not identify the
-    calculator or reference zero, so GenIM exposes it conservatively as a
+    calculator or reference zero, so GenMat exposes it conservatively as a
     postprocessed estimate rather than formation energy, hull energy, or DFT.
     """
 

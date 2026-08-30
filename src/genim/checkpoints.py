@@ -19,7 +19,7 @@ REQUIRED_CHECKPOINT_KEYS = frozenset(
 
 
 class CheckpointError(ValueError):
-    """Raised when a checkpoint is unreadable or violates the GenIM schema."""
+    """Raised when a checkpoint is unreadable or violates the GenMat schema."""
 
 
 def sha256_file(path: Path) -> str:
@@ -50,7 +50,7 @@ def validate_checkpoint_blob(blob: dict[str, Any]) -> int:
     version = int(blob.get("format_version", 1))
     if version < 1 or version > CHECKPOINT_FORMAT_VERSION:
         raise CheckpointError(
-            f"Unsupported checkpoint format {version}; this GenIM supports formats 1..{CHECKPOINT_FORMAT_VERSION}"
+            f"Unsupported checkpoint format {version}; this GenMat release supports formats 1..{CHECKPOINT_FORMAT_VERSION}"
         )
     vocab = blob["vocab"]
     id_to_token = blob["id_to_token"]

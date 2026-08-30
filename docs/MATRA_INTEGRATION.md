@@ -1,7 +1,7 @@
 # Matra integration
 
-GenIM 0.5 treats Matra Genoa as an optional generation backend. The integration
-combines Matra's condition-aware Wyckoff representation with GenIM's shared ASE
+GenMat treats Matra Genoa as an optional generation backend. The integration
+combines Matra's condition-aware Wyckoff representation with GenMat's shared ASE
 validation, provenance, cross-model deduplication, MLIP/hull screening, and
 benchmark reporting.
 
@@ -12,6 +12,11 @@ Two adapters are deliberately separate:
 - `AlexandriaMatraBackend` calls the public Matra generation/relaxation endpoint
   and returns the service-provided CIF, space group, and energy.
 
+The three audited local checkpoints and the remote service have stable catalog
+IDs. Use `genmat models list --provider matra`, then load by ID through
+`ModelRegistry` or `genmat generate-ensemble --model ...`; separate upstream
+terms must be explicitly acknowledged. See [Model access](MODELS.md).
+
 The remote energy is recorded as `relaxed_energy_per_atom`, role
 `postprocessed_estimate`. The public response does not identify the calculator,
 energy reference, or convex-hull reference set, so it must not be relabelled as
@@ -20,7 +25,7 @@ formation energy, DFT energy, or `energy_above_hull`.
 ## Population diversity and mutation
 
 For `n > 1`, a configured mutation fraction splits the final population into
-independent Matra/Alexandria parent calls and GenIM mutants. This avoids treating
+independent Matra/Alexandria parent calls and GenMat mutants. This avoids treating
 one upstream internal `pool_size` as if it returned `n` independent structures
 and reduces reliance on a single learned-mode preference.
 
@@ -42,9 +47,9 @@ evaluation, and personal use. It does not permit commercial use, sale,
 sublicensing, paid services, or support of a revenue-generating workflow
 without prior written permission.
 
-GenIM therefore does not vendor Matra source code or checkpoint weights. Users
+GenMat therefore does not vendor Matra source code or checkpoint weights. Users
 must install Matra separately from an approved source and preserve its license,
-copyright, attribution, and modification notices. GenIM's BSD license does not
+copyright, attribution, and modification notices. GenMat's BSD license does not
 replace or broaden the Matra license.
 
 ## Security and checkpoint contract
@@ -58,7 +63,7 @@ replace or broaden the Matra license.
 5. loads the state dictionary and rejects any missing or unexpected weights.
 
 This bypasses Matra's historical convenience path that loads pickle-compatible
-objects with `weights_only=False`. Matra checkpoints are not relabeled as GenIM
+objects with `weights_only=False`. Matra checkpoints are not relabeled as GenMat
 format-v2 checkpoints because their vocabularies, token semantics, output
 heads, and positional lengths differ.
 
@@ -85,16 +90,16 @@ in the prompt is a `conditioning_target`. Neither is independent evidence. A
 later evaluator may add an independently validated `calculated` observable and
 then reconcile stability or hull constraints using the declared reference set.
 
-GenIM applies exact element-set conditioning through its vocabulary mask and
+GenMat applies exact element-set conditioning through its vocabulary mask and
 exact space-group conditioning by forcing a resolved Hall token. Other
-Matra-specific conditions are recorded as unsupported for the GenIM backend and
+Matra-specific conditions are recorded as unsupported for the GenMat backend and
 are still evaluated after decoding where possible. Hall-token conditioning is
 also independently checked after decode; nothing is silently reported as
 enforced.
 
 ## Output contract
 
-`genim generate-ensemble` (legacy alias: `hybrid-generate`) writes:
+`genmat generate-ensemble` (legacy alias: `hybrid-generate`) writes:
 
 - selected, unique CIF files;
 - `candidates.jsonl`, containing every valid or rejected proposal, raw sequence,
@@ -121,7 +126,7 @@ was applied by conditioning, a sampling filter, a post-filter, or not supported.
 
 Compare at least:
 
-1. GenIM alone;
+1. GenMat alone;
 2. each Matra checkpoint alone;
 3. the deduplicated union;
 4. any later cross-conditioned or distilled model.
@@ -131,7 +136,7 @@ geometric validity, condition compliance/unknown rate, uniqueness, novelty
 against training data, composition and space-group coverage, MLIP relaxation
 success, energy-above-hull distribution, latency, and peak memory.
 
-Because Matra-MP/MPAS and GenIM may share Materials Project structures, use
+Because Matra-MP/MPAS and GenMat may share Materials Project structures, use
 composition- and prototype-held-out evaluation and deduplicate the evaluation
 set against all known training corpora. Do not claim improvement from a union
 until this leakage control is in place.
@@ -149,4 +154,4 @@ The safer transfer route is structure-level distillation:
 2. validate, deduplicate, relax, and score them;
 3. keep provenance and teacher-source labels;
 4. exclude held-out compositions and prototypes;
-5. retrain a GenIM-format model and compare it against the unaugmented baseline.
+5. retrain a GenMat-format model and compare it against the unaugmented baseline.

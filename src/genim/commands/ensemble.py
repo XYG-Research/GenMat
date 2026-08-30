@@ -7,12 +7,14 @@ from typing import Callable
 
 from ..backends import (
     EnsembleGenerator,
+    GenerationBackend,
     GenerationConstraints,
     GenerationSettings,
-    GenIMBackend,
+    GenMatBackend,
     MatraBackend,
     write_ensemble_run,
 )
+from ..models import ModelRegistry
 
 
 def add_ensemble_parser(
@@ -26,10 +28,35 @@ def add_ensemble_parser(
         help="Generate with one or more backends through shared validation and deduplication.",
         allow_abbrev=False,
     )
-    parser.add_argument("--genim-ckpt", type=path_type, default=None)
+    parser.add_argument(
+        "--genmat-ckpt",
+        "--genim-ckpt",
+        dest="genmat_ckpt",
+        type=path_type,
+        default=None,
+        help="GenMat checkpoint (`--genim-ckpt` is the compatibility spelling).",
+    )
     parser.add_argument("--matra-ckpt", type=path_type, default=None)
-    parser.add_argument("--genim-sha256", default=None)
+    parser.add_argument(
+        "--genmat-sha256",
+        "--genim-sha256",
+        dest="genmat_sha256",
+        default=None,
+    )
     parser.add_argument("--matra-sha256", default=None)
+    parser.add_argument(
+        "--model",
+        action="append",
+        default=[],
+        help="Versioned GenMat catalog model ID or alias; repeat for an ensemble.",
+    )
+    parser.add_argument("--model-cache", type=path_type, default=None)
+    parser.add_argument("--offline", action="store_true", default=None)
+    parser.add_argument(
+        "--accept-model-license",
+        action="store_true",
+        help="Acknowledge the separate upstream terms of named catalog models.",
+    )
     parser.add_argument("--out-dir", required=True, type=path_type)
     parser.add_argument("--n-per-backend", type=int, default=32)
     parser.add_argument("--elements", nargs="+", default=None)
@@ -66,14 +93,16 @@ def add_ensemble_parser(
     parser.add_argument(
         "--allow-inconsistent-matra",
         action="store_true",
-        help="Keep candidates that pass GenIM validation when Matra consistency flags fail.",
+        help="Keep candidates that pass GenMat validation when Matra consistency flags fail.",
     )
     parser.add_argument("--overwrite", action="store_true")
 
 
 def run_ensemble_command(args: argparse.Namespace) -> int:
-    if args.genim_ckpt is None and args.matra_ckpt is None:
-        raise ValueError(f"{args.cmd} requires --genim-ckpt and/or --matra-ckpt")
+    if args.genmat_ckpt is None and args.matra_ckpt is None and not args.model:
+        raise ValueError(
+            f"{args.cmd} requires --model, --genmat-ckpt, and/or --matra-ckpt"
+        )
     condition = GenerationConstraints(
         elements=tuple(args.elements or ()),
         stoichiometry=tuple(args.stoichiometry or ()),
@@ -102,12 +131,26 @@ def run_ensemble_command(args: argparse.Namespace) -> int:
         validation_options={"min_dist": float(args.min_dist), "symprec": float(args.symprec)},
     )
     backends = []
-    if args.genim_ckpt is not None:
-        backends.append(
-            GenIMBackend.from_checkpoint(
-                args.genim_ckpt,
+    if args.model:
+        registry = ModelRegistry.default(cache_dir=args.model_cache)
+        for model_ref in args.model:
+            backend = registry.load_backend(
+                model_ref,
                 device=args.device,
-                expected_sha256=args.genim_sha256,
+                offline=args.offline,
+                accept_license=bool(args.accept_model_license),
+            )
+            if not isinstance(backend, GenerationBackend):
+                raise ValueError(
+                    f"Catalog model {model_ref!r} is not a structure-generation backend"
+                )
+            backends.append(backend)
+    if args.genmat_ckpt is not None:
+        backends.append(
+            GenMatBackend.from_checkpoint(
+                args.genmat_ckpt,
+                device=args.device,
+                expected_sha256=args.genmat_sha256,
             )
         )
     if args.matra_ckpt is not None:

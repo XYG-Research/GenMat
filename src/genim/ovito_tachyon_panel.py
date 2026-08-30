@@ -29,10 +29,21 @@ from .snapshot_panel import (
 )
 
 
-# OVITO installation directory. Override with the GENIM_OVITO_ROOT environment
-# variable or the --ovito-root CLI flag. Defaults to "ovito" on PATH/cwd so the
-# package ships without any machine-specific absolute path.
-DEFAULT_OVITO_ROOT = Path(os.environ.get("GENIM_OVITO_ROOT", "ovito"))
+def _default_ovito_root() -> Path:
+    """Return the canonical OVITO override with legacy fallback."""
+
+    return Path(
+        os.environ.get(
+            "GENMAT_OVITO_ROOT",
+            os.environ.get("GENIM_OVITO_ROOT", "ovito"),
+        )
+    )
+
+
+# OVITO installation directory. Override with GENMAT_OVITO_ROOT (or the legacy
+# GENIM_OVITO_ROOT alias) or the --ovito-root CLI flag. The PATH/cwd default keeps
+# the package free of machine-specific absolute paths.
+DEFAULT_OVITO_ROOT = _default_ovito_root()
 SUPPORTED_EXACT_NAMES = {"poscar", "contcar"}
 SUPPORTED_SUFFIXES = {".cif"}
 

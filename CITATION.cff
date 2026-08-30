@@ -4,7 +4,7 @@ title: "GenMat: generative materials discovery"
 type: software
 authors:
   - name: "XYG Research"
-version: 0.5.0
+version: 0.6.0
 repository-code: "https://github.com/XYG-Research/GenIM"
 license: BSD-3-Clause
 keywords:

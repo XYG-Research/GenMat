@@ -69,7 +69,11 @@ def _find_local_omat24_checkpoint(*, filename: str) -> Optional[Path]:
     bases: List[Path] = []
 
     # User overrides: allow multiple paths separated by os.pathsep.
-    for env_var in ("GENIM_CHECKPOINT_DIR", "ADSPP_CHECKPOINT_DIR"):
+    for env_var in (
+        "GENMAT_CHECKPOINT_DIR",
+        "GENIM_CHECKPOINT_DIR",
+        "ADSPP_CHECKPOINT_DIR",
+    ):
         env = str(os.environ.get(env_var, "") or "").strip()
         if not env:
             continue
@@ -88,7 +92,7 @@ def _find_local_omat24_checkpoint(*, filename: str) -> Optional[Path]:
     except Exception:
         bases.append(Path.cwd())
 
-    # GenIM repo root (when run from source or editable install).
+    # GenMat repo root (when run from source or editable install).
     try:
         pkg_root = Path(__file__).resolve().parents[2]
         bases.append(pkg_root)

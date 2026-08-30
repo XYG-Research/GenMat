@@ -18,7 +18,7 @@ from .base import (
 )
 from .alexandria import AlexandriaMatraBackend
 from .ensemble import BackendSummary, EnsembleGenerator, EnsembleRun, write_ensemble_run
-from .genim import GenIMBackend
+from .genim import GenIMBackend, GenMatBackend
 from .matra import MatraBackend, MatraCheckpointInfo, inspect_matra_checkpoint
 from .mutation import MUTATION_METHOD, mutate_candidate, population_plan
 from .seed import AlgorithmicSeedBackend
@@ -38,6 +38,7 @@ __all__ = [
     "GenerationCondition",
     "GenerationConstraints",
     "GenerationSettings",
+    "GenMatBackend",
     "GenIMBackend",
     "MatraBackend",
     "MatraCheckpointInfo",

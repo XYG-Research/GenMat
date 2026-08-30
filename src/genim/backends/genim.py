@@ -4,7 +4,7 @@ from pathlib import Path
 
 import torch
 
-from ..api import GenIM, SamplingConfig
+from ..api import GenMat, SamplingConfig
 from ..chem import ChemistryPolicy
 from .base import (
     BackendCapabilities,
@@ -21,8 +21,8 @@ def _slug(value: str) -> str:
     return "-".join(part for part in text.split("-") if part) or "model"
 
 
-class GenIMBackend:
-    """Expose a regular GenIM checkpoint through the proposal-backend contract."""
+class GenMatBackend:
+    """Expose a GenMat checkpoint through the proposal-backend contract."""
 
     backend_name = "genim"
     capabilities = BackendCapabilities(
@@ -37,7 +37,7 @@ class GenIMBackend:
         ),
     )
 
-    def __init__(self, generator: GenIM, *, model_name: str | None = None):
+    def __init__(self, generator: GenMat, *, model_name: str | None = None):
         self.generator = generator
         self.model_name = model_name or generator.checkpoint.path.name
         self.checkpoint_sha256 = generator.checkpoint.sha256
@@ -49,8 +49,8 @@ class GenIMBackend:
         *,
         device: str | torch.device = "auto",
         expected_sha256: str | None = None,
-    ) -> "GenIMBackend":
-        generator = GenIM.from_checkpoint(path, device=device, expected_sha256=expected_sha256)
+    ) -> "GenMatBackend":
+        generator = GenMat.from_checkpoint(path, device=device, expected_sha256=expected_sha256)
         return cls(generator, model_name=Path(path).name)
 
     def propose(
@@ -61,7 +61,7 @@ class GenIMBackend:
     ) -> list[GeneratedCandidate]:
         elements = list(condition.elements)
         if elements and not condition.exact_elements:
-            raise ValueError("GenIM element-token restriction supports exact element sets, not required subsets")
+            raise ValueError("GenMat element-token restriction supports exact element sets, not required subsets")
         if elements:
             chemistry = ChemistryPolicy(
                 mode="any",
@@ -124,4 +124,8 @@ class GenIMBackend:
         return proposals
 
 
-__all__ = ["GenIMBackend"]
+class GenIMBackend(GenMatBackend):
+    """Backward-compatible backend name retained for pre-0.6 callers."""
+
+
+__all__ = ["GenMatBackend", "GenIMBackend"]

@@ -1,6 +1,6 @@
-# Public generation API
+# GenMat public generation API
 
-GenIM's canonical multi-backend vocabulary is intentionally model-neutral:
+GenMat's canonical multi-backend vocabulary is intentionally model-neutral:
 
 | Concept | Public type | Meaning |
 |---|---|---|
@@ -63,6 +63,7 @@ backends, and returns schema version 3. Request defaults are:
 {
   "formula": "SiO2",
   "backend": "auto",
+  "model": null,
   "n": 4,
   "temperature": 0.8,
   "seed": 7,
@@ -72,26 +73,36 @@ backends, and returns schema version 3. Request defaults are:
 ```
 
 `n` is the final per-backend population target. With a nonzero
-`mutation_fraction`, GenIM first requests `n - round(n * mutation_fraction)`
+`mutation_fraction`, GenMat first requests `n - round(n * mutation_fraction)`
 direct parents (at least one), then attempts to fill the remainder with
 composition-preserving mutants. `mutation_strain`, `mutation_displacement`, and
 `mutation_attempts` control the bounded mutation search. A mutant is retained
 only after shared structural validation, constraint audit, and uniqueness
 checks. Any observable tied to the parent geometry is invalidated.
 
-The same controls are available from `genim generate-ensemble` as
+The same controls are available from `genmat generate-ensemble` as
 `--n-per-backend`, `--spacegroup`, `--mutation-fraction`,
 `--mutation-strain`, `--mutation-displacement`, and `--mutation-attempts`.
 
-`spacegroup_number` accepts an integer in 1..230. The checkpoint-backed GenIM
+`spacegroup_number` accepts an integer in 1..230. The checkpoint-backed GenMat
 adapter converts it to a Hall token and forces it during sampling; local
 outputs and mutants are still independently checked with spglib. A Hall token
 being present in a universally seeded vocabulary does not establish that the
 checkpoint learned that space group from adequate training examples.
 
-`auto` prefers an available local Matra or GenIM checkpoint, then an Alexandria
-remote backend when `GENIM_ENABLE_ALEXANDRIA=1`, and otherwise selects the
+`model` accepts a stable ID or alias from `ModelRegistry`; arbitrary client URLs
+are not accepted. The response records both the requested reference and resolved
+immutable model ID under `model_selection`.
+
+`auto` prefers an available local Matra or GenMat checkpoint, then an Alexandria
+remote backend when `GENMAT_ENABLE_ALEXANDRIA=1`, and otherwise selects the
 non-ML `AlgorithmicSeedBackend`. Explicit unavailable checkpoint requests fail.
-Install `genim[api]` and run `genim serve` (or
-`genim-api`) for `/v1/health`, `/v1/capabilities`, `/v1/generate`, and OpenAPI
+Install `genmat[api]` and run `genmat serve` (or
+`genmat-api`) for `/v1/health`, `/v1/capabilities`, `/v1/models`,
+`/v1/generate`, and OpenAPI
 documentation at `/docs`.
+
+`GET /v1/models` is discovery metadata, not a scientific endorsement. Models
+whose separate license has not been acknowledged or whose optional runtime is
+missing are returned with `available=false` and an explicit availability reason;
+Studio does not offer them as runnable generation choices.

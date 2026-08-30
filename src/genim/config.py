@@ -84,7 +84,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "excluded_elements": None,
         # If true: isotropically rescale the cell to satisfy validate.* bounds before final validation.
         "autoscale_cell": False,
-        # Prototype selection strategy for `genim synth`:
+        # Prototype selection strategy for `genmat synth`:
         # - target: sample directly in the requested chemistry (recommended; more realistic lengths)
         # - random: sample a random prototype chemistry and substitute to the target (more diverse but less physical)
         "prototype_mode": "target",
@@ -96,9 +96,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # If nelements_total > len(required_elements), extra elements are drawn
         # from this pool: chemistry | any | metallic | intermetallic.
         "random_pool": "chemistry",
-        # Prototype palette used by `genim synth`: restrict sampling to a small, common element set,
+        # Prototype palette used by `genmat synth`: restrict sampling to a small, common element set,
         # then substitute to the target chemistry. This dramatically reduces prototype_nelements_mismatch.
-        # If set, `genim synth` can use this palette to condition prototype sampling.
+        # If set, `genmat synth` can use this palette to condition prototype sampling.
         # If null/None, all vocabulary elements allowed by chemistry_mode are used.
         "prototype_elements": None,
         "force_distinct_first_sites": True,
@@ -134,7 +134,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "vol_per_atom_max": 100.0,
     },
     "synth": {
-        # Element ratio control for required elements (aligned with `genim synth --elements` order).
+        # Element ratio control for required elements (aligned with `genmat synth --elements` order).
         # When null, no ratio constraints are applied.
         "ratios": None,
         # ratio | percent (legacy auto is still accepted when loading older configs)

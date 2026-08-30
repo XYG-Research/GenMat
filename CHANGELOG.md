@@ -5,11 +5,29 @@ semantic versioning for public APIs and serialized schemas.
 
 ## Unreleased
 
-- Renamed the outward-facing software and Studio brand to GenMat to reflect its
-  general-materials scope. The `genim` package, backend identifier, schema
-  fields, checkpoint format, and legacy commands remain compatibility-stable.
-- Added the public `GenMat` API class plus `genmat` and `genmat-api` command
-  aliases without removing `GenIM`, `genim`, or `genim-api`.
+## 0.6.0
+
+- Made `genmat` the canonical distribution/import namespace and made `GenMat`
+  and `GenMatBackend` the implementation-owning classes. The `genim` namespace,
+  `GenIM`/`GenIMBackend`, legacy commands, checkpoint keys, and backend wire ID
+  remain compatibility-stable.
+- Added a packaged, versioned `ModelRegistry` covering the historical GenMat
+  checkpoint, three Matra Genoa checkpoints, Alexandria remote generation, and
+  OMat24 eSEN relaxation. The registry supports aliases, offline mode, explicit
+  license acknowledgement, deterministic caching, and published size/SHA256
+  verification.
+- Require size/SHA256 metadata for every downloadable catalog asset and an
+  immutable commit for Hugging Face sources; the OMat24 eSEN entry pins both its
+  upstream commit and LFS digest.
+- Added `genmat models list|info|pull`, catalog-backed `--model` ensemble input,
+  `/v1/models`, the HTTP generation `model` field, and `GENMAT_*` configuration
+  with lower-priority `GENIM_*` aliases.
+- Updated Studio to discover runnable generation models from capabilities and to
+  preserve non-renderable schema-v3 candidate records as audit evidence instead
+  of discarding an otherwise valid mixed response.
+- Preserved pre-0.6 positional API construction, propagated environment-driven
+  offline mode, and prevented non-generation or explicitly named models from
+  being loaded or silently replaced by another backend.
 
 ## 0.5.0
 

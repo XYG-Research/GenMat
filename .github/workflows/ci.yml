@@ -26,8 +26,12 @@ jobs:
         run: python -m pip install --upgrade pip build && python -m pip install -e ".[hull,test]"
       - name: Test
         run: python -m pytest -q
-      - name: Compile public package
-        run: python -m compileall -q src/genim
+      - name: Verify canonical and compatibility namespaces
+        run: |
+          python -m compileall -q src/genmat src/genim
+          python -c "import genmat, genim; assert genmat.GenMat is genim.GenMat; assert genmat.__version__ == '0.6.0'"
+          genmat models list
+          genim --help
       - name: Build source and wheel distributions
         if: matrix.python-version == '3.11'
         run: python -m build

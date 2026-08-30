@@ -5,7 +5,7 @@
 - Format 1: legacy checkpoint with no `format_version` field.
 - Format 2: current versioned checkpoint with provenance metadata.
 
-`genim.checkpoints.load_model_checkpoint` validates required fields, vocabulary
+`genmat.checkpoints.load_model_checkpoint` validates required fields, vocabulary
 consistency, model configuration, exact state-dict compatibility, and an optional
 expected SHA256 before returning a model.
 
@@ -24,7 +24,7 @@ Format 2 additionally writes:
 
 ```text
 format_version = 2
-metadata.genim_version
+metadata.genim_version  # retained serialized compatibility key
 metadata.created_at_utc
 metadata.training_seed
 metadata.training_steps

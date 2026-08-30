@@ -16,6 +16,7 @@ from .benchmark import benchmark_cif_dir, write_benchmark_report
 from .checkpoints import load_model_checkpoint
 from .chem import available_elements
 from .commands.ensemble import add_ensemble_parser, run_ensemble_command
+from .commands.models import add_models_parser, run_models_command
 from .commands.serve import add_serve_parser, run_serve_command
 from .config import DEFAULT_CONFIG, SynthRequest, load_config, write_default_config
 from .examples import make_examples_jsonl
@@ -164,11 +165,11 @@ def _interactive_menu() -> int:
     ckpt = _p(str(paths.get("ckpt", "checkpoints/mp_train_fullsg_60.pt")))
     out_base = _p(str(paths.get("out_dir", "output")))
 
-    print("GenIM interactive mode")
+    print("GenMat interactive mode")
     if conf_path.is_file():
         print(f"[config] Loaded: {conf_path}")
     else:
-        print(f"[config] Not found: {conf_path} (some modules may fail; run `genim conf-init`)")
+        print(f"[config] Not found: {conf_path} (some modules may fail; run `genmat conf-init`)")
     print(f"[defaults] mp_jsonl={mp_jsonl}")
     print(f"[defaults] tokens_pt={tokens_pt}")
     print(f"[defaults] ckpt={ckpt}")
@@ -567,7 +568,7 @@ def _interactive_menu() -> int:
         print("")
         for h in hints:
             print(f"[io] {h}")
-        print(f"[run] genim {' '.join(argv)}")
+        print(f"[run] genmat {' '.join(argv)}")
 
         try:
             rc = main(argv=argv)
@@ -592,7 +593,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None and len(sys.argv) == 1:
         return _interactive_menu()
 
-    parser = argparse.ArgumentParser(prog="genim", allow_abbrev=False)
+    parser = argparse.ArgumentParser(prog="genmat", allow_abbrev=False)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_ex = sub.add_parser("examples-make", help="Create a tiny offline example dataset (JSONL).", allow_abbrev=False)
@@ -604,7 +605,7 @@ def main(argv: list[str] | None = None) -> int:
     p_ins.add_argument("--wyckoff", action="store_true", help="For JSONL: run spglib and report Wyckoff/Hall stats (slower).")
     p_ins.add_argument("--symprec", type=float, default=1e-2)
 
-    p_ck = sub.add_parser("checkpoint-info", help="Validate and describe a GenIM model checkpoint.", allow_abbrev=False)
+    p_ck = sub.add_parser("checkpoint-info", help="Validate and describe a GenMat model checkpoint.", allow_abbrev=False)
     p_ck.add_argument("--ckpt", required=True, type=_p)
     p_ck.add_argument("--expected-sha256", default=None)
 
@@ -735,6 +736,7 @@ def main(argv: list[str] | None = None) -> int:
     p_gen.add_argument("--substitute-elements", nargs="+", default=None, help="Post-hoc substitute the generated species set with these elements (keeps prototype, changes chemistry).")
 
     add_ensemble_parser(sub, path_type=_p)
+    add_models_parser(sub)
     add_serve_parser(sub)
 
     p_val = sub.add_parser("validate", help="Validate generated CIFs quickly.", allow_abbrev=False)
@@ -961,6 +963,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd in {"generate-ensemble", "hybrid-generate"}:
         return run_ensemble_command(args)
+    if args.cmd == "models":
+        return run_models_command(args)
     if args.cmd == "serve":
         return run_serve_command(args)
     if args.cmd == "validate":
@@ -1008,7 +1012,7 @@ def main(argv: list[str] | None = None) -> int:
         except ImportError as exc:  # pragma: no cover - depends on optional extras
             print(
                 "Error: `surface-screen` requires the optional 'hull' extra "
-                "(pymatgen, scipy). Install with: pip install 'genim[hull]'.\n"
+                "(pymatgen, scipy). Install with: pip install 'genmat[hull]'.\n"
                 f"Underlying import error: {exc}",
                 file=sys.stderr,
             )

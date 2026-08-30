@@ -17,6 +17,7 @@ from .symmetry import extract_wyckoff_structure
 
 MP_BASE = "https://api.materialsproject.org"
 MP_SUMMARY = f"{MP_BASE}/materials/summary/"
+GENMAT_USER_AGENT = "genmat/0.6.0"
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,13 @@ def _mp_session(timeout: float) -> requests.Session:
     if not api_key:
         raise RuntimeError("Missing Materials Project API key (set MP_API_KEY or PMG_MAPI_KEY).")
     s = requests.Session()
-    s.headers.update({"X-API-KEY": api_key, "Accept": "application/json", "User-Agent": "genim/0.1.0"})
+    s.headers.update(
+        {
+            "X-API-KEY": api_key,
+            "Accept": "application/json",
+            "User-Agent": GENMAT_USER_AGENT,
+        }
+    )
     s.request = _wrap_timeout(s.request, timeout)
     return s
 

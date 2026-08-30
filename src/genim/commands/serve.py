@@ -8,7 +8,7 @@ def add_serve_parser(
 ) -> None:
     parser = subparsers.add_parser(
         "serve",
-        help="Run the GenIM HTTP generation service with safe local defaults.",
+        help="Run the GenMat HTTP generation service with safe local defaults.",
         allow_abbrev=False,
     )
     parser.add_argument("--host", default="127.0.0.1")
@@ -21,7 +21,7 @@ def run_serve_command(args: argparse.Namespace) -> int:
         import uvicorn
     except ImportError as exc:
         raise ImportError(
-            "The serve command requires the 'api' extra: pip install 'genim[api]'"
+            "The serve command requires the 'api' extra: pip install 'genmat[api]'"
         ) from exc
     from ..server import create_app
 

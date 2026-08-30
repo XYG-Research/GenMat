@@ -12,7 +12,7 @@ from genim.train import train_lm
 
 
 def test_genmat_is_primary_api_with_genim_compatibility() -> None:
-    assert issubclass(GenMat, GenIM)
+    assert issubclass(GenIM, GenMat)
 
 
 def _tiny_checkpoint(path: Path) -> None:

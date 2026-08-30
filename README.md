@@ -4,7 +4,9 @@
 
 GenMat is a Python package and command-line toolkit for building, generating,
 validating, ranking, benchmarking, and screening periodic crystal structures.
-Version 0.5 adds controlled, composition-preserving population mutation and
+Version 0.6 establishes the canonical `genmat` distribution and import
+namespace, a versioned model catalog, and model-aware Python, CLI, HTTP, and
+Studio integration. Version 0.5 added controlled, composition-preserving population mutation and
 exact Hall-token space-group conditioning. Version 0.4 added evidence-aware
 Matra/Alexandria observables, chemistry-aware
 seed geometry, and deterministic scientific triage. Version 0.3 added auditable
@@ -13,14 +15,40 @@ domain explicit and general-purpose: oxides, nitrides,
 halides, carbides, semiconductors, elemental solids, and intermetallics can use
 the same Hall/Wyckoff generation pipeline.
 
-The install/import namespace remains `genim`, and the `GenIM` class and
-`genim`/`genim-api` commands remain supported compatibility interfaces. New code
-may use `from genim import GenMat` and the `genmat`/`genmat-api` commands.
+The canonical distribution and import namespace are now `genmat`, the primary
+class is `GenMat`, and the commands are `genmat` and `genmat-api`. The historical
+`genim` namespace, `GenIM` class, `GenIMBackend`, and `genim`/`genim-api` commands
+remain thin compatibility interfaces so published workflows and checkpoints stay
+reproducible.
+
+When upgrading an environment that installed the old `genim` distribution,
+remove it before installing `genmat`; installing both distributions would make
+them co-own the same compatibility package files:
+
+```bash
+python -m pip uninstall genim
+python -m pip install --upgrade genmat
+```
 
 The representation combines space-group symmetry, Wyckoff sites, discretized
 lattice/coordinate tokens, and a causal Transformer. Generated candidates are
 decoded to ASE `Atoms`, checked geometrically and crystallographically, deduplicated,
 and optionally relaxed/scored with an ML interatomic potential.
+
+## What changed in 0.6
+
+- `GenMat` and `GenMatBackend` now own the implementation; `GenIM` and
+  `GenIMBackend` are compatibility subclasses rather than the primary classes.
+- The published package is `genmat` and contains both `genmat` and legacy
+  `genim` imports, with matching canonical and compatibility command entry points.
+- `ModelRegistry` provides versioned model IDs, aliases, provenance, capability
+  declarations, license gates, offline mode, content-addressed caching, and
+  SHA256/size verification where an immutable checksum is published.
+- `genmat models list|info|pull`, `GET /v1/models`, and the `model` generation
+  request field make GenMat, Matra, Alexandria, and OMat24 assets discoverable
+  without hard-coded paths. See [Model access](docs/MODELS.md).
+- `GENMAT_*` is the canonical environment-variable family. Existing `GENIM_*`
+  variables remain supported at lower precedence.
 
 ## What changed in 0.5
 
@@ -66,7 +94,7 @@ and optionally relaxed/scored with an ML interatomic potential.
 - `GenerationBackend`, `GenerationConstraints`, `GeneratedCandidate`, and
   `EnsembleGenerator` define a model-neutral generation and provenance contract.
   The original 0.3 names remain compatibility aliases.
-- `GenIMBackend` and the optional `MatraBackend` run through the same ASE
+- `GenMatBackend` and the optional `MatraBackend` run through the same ASE
   conversion, validation, condition audit, and cross-model deduplication path.
 - `AlgorithmicSeedBackend` and `GeneratorService` provide a reproducible,
   composition-exact default when no compatible checkpoint is configured,
@@ -75,7 +103,7 @@ and optionally relaxed/scored with an ML interatomic potential.
   `/v1/generate` with the same candidate records used by Python.
 - Matra checkpoints are loaded with PyTorch weights-only mode, SHA256
   verification, schema checks, and exact reconstructed-model weight matching.
-- `genim generate-ensemble` produces selected CIFs, a complete `candidates.jsonl`
+- `genmat generate-ensemble` produces selected CIFs, a complete `candidates.jsonl`
   audit trail, and a source-aware `ensemble-report.json`.
 - Matra conditioning supports stability, exact elements, stoichiometry, space
   group, checkpoint-specific Wyckoff indices, and continuous hull targets.
@@ -88,7 +116,7 @@ and optionally relaxed/scored with an ML interatomic potential.
   `intermetallic` are explicit compatibility modes.
 - Vocabulary seeding covers all 118 elements in `any` mode and supports exact
   allow/deny lists.
-- `GenIM.from_checkpoint(...)` provides a stable Python API with batched
+- `GenMat.from_checkpoint(...)` provides a stable Python API with batched
   grammar-constrained sampling.
 - New checkpoints have a versioned schema, SHA256 verification, training/data
   provenance, and strict weight/config compatibility checks. Legacy v1
@@ -96,14 +124,14 @@ and optionally relaxed/scored with an ML interatomic potential.
 - New models default to `periodic8` element descriptors: atomic number,
   covalent radius, mass, period, group, and broad chemical-class indicators.
   Legacy feature checkpoints retain their original four-dimensional projection.
-- `ValidationReport` exposes decision metrics, while `genim benchmark` reports
+- `ValidationReport` exposes decision metrics, while `genmat benchmark` reports
   validity, uniqueness, formula/element coverage, and space-group coverage.
 - CI and a tracked regression suite cover chemistry policies, legacy checkpoint
   loading, batch sampling, generation provenance, and the existing workflows.
 
 ## Scientific scope
 
-GenIM proposes symmetry-consistent candidates; it does **not** prove that a
+GenMat proposes symmetry-consistent candidates; it does **not** prove that a
 candidate is synthesizable, dynamically stable, or the thermodynamic ground
 state. Use the stages according to the question:
 
@@ -132,7 +160,7 @@ python -m pip install -e ".[all]"        # MLIP + hull extras
 ```
 
 Matra is optional and has a separate non-commercial research license. Install
-it explicitly from an approved source; GenIM does not vendor Matra code or
+it explicitly from an approved source; GenMat does not vendor Matra code or
 weights:
 
 ```bash
@@ -149,7 +177,7 @@ python -m pip install -e ../matra-genoa-preview
 | `intermetallic` | Legacy metallic domain | 2 |
 
 `allowed_elements` and `excluded_elements` narrow these domains exactly.
-GenIM deliberately avoids an `inorganic` heuristic because that label cannot be
+GenMat deliberately avoids an `inorganic` heuristic because that label cannot be
 inferred unambiguously from an element set alone.
 
 Example configuration:
@@ -185,15 +213,15 @@ The built-in examples include intermetallic, ionic, covalent, and semiconductor
 structures.
 
 ```bash
-genim examples-make --out data/examples.jsonl
-genim preprocess --in data/examples.jsonl --out data/examples.tokens.pt \
+genmat examples-make --out data/examples.jsonl
+genmat preprocess --in data/examples.jsonl --out data/examples.tokens.pt \
   --seed-all-elements --seed-all-hall --chemistry any
-genim train --data data/examples.tokens.pt --out checkpoints/example.pt \
+genmat train --data data/examples.tokens.pt --out checkpoints/example.pt \
   --steps 200 --element-emb features --element-feature-set periodic8
-genim generate --ckpt checkpoints/example.pt --n 10 --out-dir output/cif \
+genmat generate --ckpt checkpoints/example.pt --n 10 --out-dir output/cif \
   --chemistry any --nelements-min 1
-genim validate --cif-dir output/cif
-genim benchmark --cif-dir output/cif --out output/cif/benchmark.json
+genmat validate --cif-dir output/cif
+genmat benchmark --cif-dir output/cif --out output/cif/benchmark.json
 ```
 
 ## Materials Project training data
@@ -202,13 +230,13 @@ Set `MP_API_KEY` (or `PMG_MAPI_KEY`), or place the key in the gitignored
 `.mp_api_key` file.
 
 ```bash
-genim mp-download --chemistry any --max-atoms 100 --eah-max 0.5 \
+genmat mp-download --chemistry any --max-atoms 100 --eah-max 0.5 \
   --nelements-min 1 --nelements-max 5 --limit 50000 --out data/mp.jsonl
-genim preprocess --in data/mp.jsonl --out data/mp.tokens.pt \
+genmat preprocess --in data/mp.jsonl --out data/mp.tokens.pt \
   --seed-all-elements --seed-all-hall --chemistry any
-genim inspect --in data/mp.jsonl --wyckoff
-genim inspect --in data/mp.tokens.pt
-genim train --data data/mp.tokens.pt --out checkpoints/mp_general.pt \
+genmat inspect --in data/mp.jsonl --wyckoff
+genmat inspect --in data/mp.tokens.pt
+genmat train --data data/mp.tokens.pt --out checkpoints/mp_general.pt \
   --steps 20000 --val-fraction 0.1 \
   --element-emb features --element-feature-set periodic8
 ```
@@ -227,7 +255,7 @@ generation-and-relaxation service when explicitly enabled, and otherwise
 returns an explicitly labelled algorithmic starting geometry:
 
 ```bash
-genim serve --host 127.0.0.1 --port 8000
+genmat serve --host 127.0.0.1 --port 8000
 ```
 
 ```bash
@@ -236,21 +264,47 @@ curl -X POST http://127.0.0.1:8000/v1/generate \
   -d '{"formula":"LiFePO4","spacegroup_number":62,"n":4,"seed":7}'
 ```
 
-Use `GENIM_MATRA_CHECKPOINT`, `GENIM_MATRA_SHA256`,
-`GENIM_MODEL_CHECKPOINT`, and `GENIM_MODEL_SHA256` to configure checkpoint
-backends. Set `GENIM_ENABLE_ALEXANDRIA=1` to opt into the public remote backend.
+Use `GENMAT_MATRA_CHECKPOINT`, `GENMAT_MATRA_SHA256`,
+`GENMAT_MODEL_CHECKPOINT`, and `GENMAT_MODEL_SHA256` to configure checkpoint
+backends. Set `GENMAT_ENABLE_ALEXANDRIA=1` to opt into the public remote backend.
+The same `GENIM_*` names remain lower-priority compatibility aliases.
 In a source checkout, the service can discover the verified sibling
 `matra-v02-med.ckpt`. `backend="auto"` prefers local checkpoints, then the
 enabled remote service, then the geometry seed; explicit unavailable checkpoint
 requests fail instead of silently falling back.
 See [Public generation API](docs/PUBLIC_API.md).
 
+## Model access
+
+```bash
+genmat models list
+genmat models info matra/genoa-mpas-med@0.2
+genmat models pull matra/genoa-mpas-med@0.2 --accept-license
+genmat generate-ensemble --model matra/genoa-mpas-med@0.2 \
+  --accept-model-license --elements Na Cl --stoichiometry 1 1 \
+  --n-per-backend 8 --out-dir output/matra-nacl
+```
+
+Python callers use the same catalog and cache:
+
+```python
+from genmat import ModelRegistry
+
+models = ModelRegistry.default()
+spec = models.info("matra-v02-med")
+backend = models.load_backend(spec, accept_license=True, device="auto")
+```
+
+Catalog metadata does not claim that a model is scientifically suitable for an
+arbitrary chemistry. Inspect its training-domain evidence and model card before
+interpreting results. See [Model access and provenance](docs/MODELS.md).
+
 ## Python API
 
 ```python
-from genim import ChemistryPolicy, GenIM, SamplingConfig
+from genmat import ChemistryPolicy, GenMat, SamplingConfig
 
-model = GenIM.from_checkpoint(
+model = GenMat.from_checkpoint(
     "checkpoints/mp_general.pt",
     device="auto",
     # expected_sha256="..."  # recommended for published artifacts
@@ -281,18 +335,18 @@ The current batch sampler performs one model forward pass per token position for
 all active rows. KV-cache decoding is a future performance optimization; the
 public result/provenance contract does not depend on it.
 
-## Ensemble GenIM + Matra generation
+## Ensemble GenMat + Matra generation
 
 The hybrid interface treats models as independent proposal sources. It does not
 average or concatenate incompatible state dictionaries.
 
 ```bash
-genim matra-checkpoint-info \
+genmat matra-checkpoint-info \
   --ckpt ../matra-genoa-preview/checkpoints/matra-v02-med.ckpt \
   --expected-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa
 
-genim generate-ensemble \
-  --genim-ckpt checkpoints/mp_general.pt \
+genmat generate-ensemble \
+  --genmat-ckpt checkpoints/mp_general.pt \
   --matra-ckpt ../matra-genoa-preview/checkpoints/matra-v02-med.ckpt \
   --matra-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa \
   --elements Na Cl --stoichiometry 1 1 --stability stable \
@@ -302,13 +356,13 @@ genim generate-ensemble \
 Equivalent Python API:
 
 ```python
-from genim import (
-    EnsembleGenerator, GenerationConstraints, GenerationSettings, GenIMBackend,
+from genmat import (
+    EnsembleGenerator, GenerationConstraints, GenerationSettings, GenMatBackend,
     MatraBackend, write_ensemble_run,
 )
 
 backends = [
-    GenIMBackend.from_checkpoint("checkpoints/mp_general.pt"),
+    GenMatBackend.from_checkpoint("checkpoints/mp_general.pt"),
     MatraBackend.from_checkpoint(
         "../matra-genoa-preview/checkpoints/matra-v02-med.ckpt",
         expected_sha256="4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa",
@@ -331,20 +385,20 @@ evidence level. Unevaluated stability/hull targets require MLIP/DFT evidence. Se
 
 ## Composition-constrained synthesis
 
-`genim synth` reads `conf.yml` and supports exact ratio or atomic-percentage
+`genmat synth` reads `conf.yml` and supports exact ratio or atomic-percentage
 constraints:
 
 ```bash
-genim synth --elements Na Cl --nelements 2 --ratios 1 1
-genim synth --elements Fe O --nelements 2 --ratios 2 3
-genim synth --elements Li Fe P O --nelements 4 \
+genmat synth --elements Na Cl --nelements 2 --ratios 1 1
+genmat synth --elements Fe O --nelements 2 --ratios 2 3
+genmat synth --elements Li Fe P O --nelements 4 \
   --ratios 1 1 1 4 --ratio-mode ratio
 ```
 
 `X` keeps an element mandatory while leaving its fraction unconstrained:
 
 ```bash
-genim synth --elements Li Fe P O --nelements 4 \
+genmat synth --elements Li Fe P O --nelements 4 \
   --ratios 1 X 1 X --ratio-mode ratio
 ```
 
@@ -355,16 +409,17 @@ assets and record SHA256 values. Format-v2 checkpoints contain:
 
 - `format_version`;
 - strict `model_config`, vocabulary, tokenizer config, and weights;
-- GenIM version, creation time, seed, training steps;
+- GenMat version (legacy files may use the `genim_version` key), creation time,
+  seed, and training steps;
 - source token-dataset SHA256 and source-dataset provenance;
 - dataset and symmetry statistics.
 
-Use `genim.checkpoints.download_checkpoint(...)` for atomic downloads with
+Use `genmat.checkpoints.download_checkpoint(...)` for atomic downloads with
 optional checksum enforcement. Details are in
 [Checkpoint format](docs/CHECKPOINT_FORMAT.md).
 
 ```bash
-genim checkpoint-info --ckpt checkpoints/mp_train_fullsg_60.pt \
+genmat checkpoint-info --ckpt checkpoints/mp_train_fullsg_60.pt \
   --expected-sha256 3777449fe396522c0173aaa699c70c99b4d28e26b436200545f08f86ff28173c
 ```
 
@@ -377,8 +432,8 @@ URLs, and hashes are recorded in
 ## Optional scientific screening
 
 ```bash
-genim score --conf conf.yml --cif-dir output/cif
-genim surface-screen --input-dir output/cif --out-dir output/surfaces
+genmat score --conf conf.yml --cif-dir output/cif
+genmat surface-screen --input-dir output/cif --out-dir output/surfaces
 ```
 
 `score` uses the configured MLIP and a consistent reference pool to estimate

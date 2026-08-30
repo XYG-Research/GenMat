@@ -3,8 +3,8 @@ requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "genim"
-version = "0.5.0"
+name = "genmat"
+version = "0.6.0"
 description = "GenMat: a multi-backend, symmetry-aware crystal generation toolkit for general materials chemistry."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -46,7 +46,7 @@ hull = [
   "scipy",
 ]
 # Matra itself is installed separately from its approved source because its
-# non-commercial research license differs from GenIM's BSD license.
+# non-commercial research license differs from GenMat's BSD license.
 matra = [
   "pymatgen>=2024.1",
 ]
@@ -73,8 +73,8 @@ Repository = "https://github.com/XYG-Research/GenIM"
 Issues = "https://github.com/XYG-Research/GenIM/issues"
 
 [project.scripts]
-genmat = "genim.cli:main"
-genmat-api = "genim.server:main"
+genmat = "genmat.cli:main"
+genmat-api = "genmat.server:main"
 genim = "genim.cli:main"
 genim-api = "genim.server:main"
 
@@ -83,6 +83,9 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+genim = ["data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

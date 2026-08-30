@@ -15,7 +15,7 @@ Materials Project / JSONL / examples
               +----------------------+----------------------+----------------+
               |                      |                      |                |
               v                      v                      v                v
-   AlgorithmicSeedBackend      GenIMBackend          MatraBackend   AlexandriaMatraBackend
+   AlgorithmicSeedBackend      GenMatBackend         MatraBackend   AlexandriaMatraBackend
               |                      |                      |                |
               +---------------- GenerationBackend -------------------------+
                          |
@@ -46,11 +46,14 @@ Materials Project / JSONL / examples
 - `preprocess.py`: structure-to-token conversion and token-dataset provenance.
 - `model.py`: model architecture, including legacy/new element feature contracts.
 - `checkpoints.py`: safe loading, schema compatibility, checksums, and downloads.
+- `models.py` + packaged catalog: stable model IDs, provenance, license gates,
+  offline/cache policy, asset integrity, and backend dispatch.
 - `generate.py`: grammar-constrained scalar and batch token sampling.
 - `api.py`: reusable model/result/provenance contract.
 - `backends/base.py`: backend-neutral constraints, generation settings,
   capability declarations, candidate records, and three-state evidence.
-- `backends/genim.py`: adapter from the existing public GenIM API.
+- `backends/genim.py`: canonical `GenMatBackend` plus the `GenIMBackend`
+  compatibility subclass; the historical wire ID remains `genim`.
 - `backends/matra.py`: optional, safely loaded Matra inference adapter.
 - `backends/alexandria.py`: optional public Matra/Alexandria generation and
   relaxation adapter with conservative energy semantics.
@@ -66,7 +69,7 @@ Materials Project / JSONL / examples
 - `service.py`: framework-neutral request parsing, backend discovery/selection,
   default settings, and schema-version-3 response assembly.
 - `server.py`: optional FastAPI transport (`/v1/health`,
-  `/v1/capabilities`, `/v1/generate`).
+  `/v1/capabilities`, `/v1/models`, `/v1/generate`).
 - `commands/`: composable CLI registrations and handlers extracted from the
   legacy orchestration hub.
 - `validate.py`: fast structural decisions plus auditable metrics.
@@ -80,7 +83,7 @@ controls what is allowed at input/output boundaries; the checkpoint determines
 what distribution the model has learned. Code must not infer model competence
 from a permissive policy.
 
-External checkpoint schemas are never coerced into the GenIM checkpoint schema.
+External checkpoint schemas are never coerced into the GenMat checkpoint schema.
 Each backend owns its safe loader and exposes a common proposal record only
 after decoding. Transformer state dictionaries are not merged across token
 grammars.
@@ -94,7 +97,7 @@ never be reported as satisfied.
 Backends declare *how* they apply a constraint (`construction`, `conditioning`,
 `sampling_filter`, `post_filter`, or `unsupported`). This capability statement
 is deliberately separate from per-candidate evidence. Matra conditioning and a
-GenIM token mask are generation mechanisms; decoded-structure checks, MLIP,
+GenMat token mask are generation mechanisms; decoded-structure checks, MLIP,
 convex-hull, DFT, and phonons provide progressively stronger evidence.
 
 Population mutation happens before cross-backend deduplication. It never copies
@@ -110,9 +113,10 @@ stability/hull constraint. Remote energies with undisclosed calculators or
 reference zeros remain postprocessed estimates even when numerically precise.
 
 The HTTP service defaults to `backend="auto"`. It prefers a configured Matra
-or GenIM checkpoint, then an explicitly enabled Alexandria remote backend, and
+or GenMat checkpoint, then an explicitly enabled Alexandria remote backend, and
 otherwise uses `AlgorithmicSeedBackend`. An explicit
 request for an unavailable checkpoint backend fails rather than being silently
 relabelled as a model prediction. The service layer is the canonical integration
-boundary for the visual application; the older checkpoint-specific `api.py`
-objects remain available for GenIM 0.3 compatibility.
+boundary for the visual application. A catalog `model` reference selects a
+pinned adapter without accepting arbitrary URLs; the older `GenIM` objects
+remain available for compatibility.

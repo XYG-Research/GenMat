@@ -71,8 +71,8 @@ class GeneratedStructure:
         }
 
 
-class GenIM:
-    """Legacy-compatible Python API for checkpoint-backed crystal generation."""
+class GenMat:
+    """Primary Python API for checkpoint-backed crystal generation."""
 
     def __init__(self, checkpoint: LoadedCheckpoint):
         self.checkpoint = checkpoint
@@ -94,7 +94,7 @@ class GenIM:
         *,
         device: str | torch.device = "auto",
         expected_sha256: str | None = None,
-    ) -> "GenIM":
+    ) -> "GenMat":
         return cls(load_model_checkpoint(Path(path), device=device, expected_sha256=expected_sha256))
 
     @property
@@ -293,8 +293,8 @@ class GenIM:
         return paths
 
 
-class GenMat(GenIM):
-    """Primary GenMat API; inherits the stable GenIM checkpoint interface."""
+class GenIM(GenMat):
+    """Backward-compatible name for the pre-0.6 GenMat checkpoint API."""
 
 
 __all__ = ["GenMat", "GenIM", "GeneratedStructure", "SamplingConfig"]

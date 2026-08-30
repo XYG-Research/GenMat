@@ -1,6 +1,6 @@
-# GenIM unified configuration (all knobs live here).
+# GenMat unified configuration (all knobs live here).
 # Typical usage:
-#   genim synth --conf conf.yml --elements Fe Si --nelements 3
+#   genmat synth --conf conf.yml --elements Fe Si --nelements 3
 #
 # Notes:
 # - Keep your MP API key in env var MP_API_KEY/PMG_MAPI_KEY or a local `.mp_api_key` file (ignored by git).
@@ -83,7 +83,7 @@ generate:
   # chemistry | any | metallic | intermetallic
   random_pool: chemistry
 
-  # `genim synth` 的可选原型元素调色板。null 表示使用检查点词表中
+  # `genmat synth` 的可选原型元素调色板。null 表示使用检查点词表中
   # 所有满足 chemistry_mode 的元素；列表可显式限制原型元素。
   prototype_elements: null
   force_distinct_first_sites: true
@@ -111,7 +111,7 @@ validate:
   vol_per_atom_max: 100.0
 
 synth:
-  # 元素比例/占比控制（按 `genim synth --elements` 顺序对齐）。
+  # 元素比例/占比控制（按 `genmat synth --elements` 顺序对齐）。
   # - ratios: null 表示不做比例约束；否则填写与 elements 等长的列表
   #   数值表示约束项，X/null 表示该元素必须出现但组成不固定
   # - 写法示例：

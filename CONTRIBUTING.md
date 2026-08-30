@@ -1,6 +1,6 @@
-# Contributing to GenIM
+# Contributing to GenMat
 
-GenIM welcomes contributions across crystal representations, generation
+GenMat welcomes contributions across crystal representations, generation
 backends, validation, benchmarks, documentation, and visualization.
 
 ## Development setup
@@ -8,7 +8,7 @@ backends, validation, benchmarks, documentation, and visualization.
 ```powershell
 python -m pip install -e ".[hull,test]"
 python -m pytest -q
-python -m compileall -q src/genim
+python -m compileall -q src/genmat src/genim
 ```
 
 Run commands from the repository root. Pytest is intentionally restricted to
@@ -37,7 +37,7 @@ must have unambiguous scientific semantics and a versioned serialized schema.
 
 Do not commit model weights, private data, credentials, or license-restricted
 third-party source. Matra code and checkpoints remain under their own
-non-commercial research license and are not covered by GenIM's BSD license.
+non-commercial research license and are not covered by GenMat's BSD license.
 New checkpoint manifests must include immutable URLs, byte sizes, SHA256, model
 configuration, intended use, training-domain summary, and known limitations.
 

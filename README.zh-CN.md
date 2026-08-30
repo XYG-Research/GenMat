@@ -3,20 +3,40 @@
 [English](README.md) | **简体中文**
 
 GenMat 是一个用于晶体结构构建、生成、验证、基准评测与筛选的 Python
-软件包和命令行工具。0.4 版本新增了带证据语义的 Matra/Alexandria 能量、
+软件包和命令行工具。0.6 版本完成了 `genmat` 正式包与导入命名空间、
+统一模型目录以及 Python/命令行/HTTP/Studio 模型接入；0.4 版本新增了带证据语义的 Matra/Alexandria 能量、
 化学感知的种子几何和透明科学排序；0.3 版本新增了可审计的多模型生成后端；
 0.2 版本不再把
 化学体系硬编码为金属间化合物：
 氧化物、氮化物、卤化物、碳化物、半导体、元素固体和金属间化合物可以
 共用 Hall/Wyckoff—Transformer 流程。
 
-为保证既有科研流程可复现，安装与导入命名空间仍为 `genim`，`GenIM`
-类以及 `genim`/`genim-api` 命令继续作为兼容接口。新代码可以使用
-`from genim import GenMat` 与 `genmat`/`genmat-api` 命令。
+正式安装包与导入命名空间现为 `genmat`，主类为 `GenMat`，正式命令为
+`genmat` 与 `genmat-api`。为保证既有科研流程可复现，`genim` 命名空间、
+`GenIM` 类、`GenIMBackend` 以及 `genim`/`genim-api` 命令继续作为兼容接口。
+
+如果现有环境安装过旧的 `genim` 发布包，请先卸载旧包再安装 `genmat`；
+两者同时安装会共同占用同一组兼容模块文件：
+
+```bash
+python -m pip uninstall genim
+python -m pip install --upgrade genmat
+```
 
 模型以空间群、Wyckoff 位点、离散晶格参数和坐标为序列表示，生成结果
 解码为 ASE `Atoms`，随后进行几何/对称性检查、去重，并可选择使用 MLIP
 弛豫和 Energy Above Hull 筛选。
+
+## 0.6 版的核心改进
+
+- `GenMat` 与 `GenMatBackend` 现在是实际实现类；`GenIM` 与
+  `GenIMBackend` 是兼容子类。
+- 发布包名正式改为 `genmat`，同时在同一发布物中保留 `genim` 兼容导入。
+- `ModelRegistry` 统一管理版本化模型 ID、别名、来源、能力声明、许可证确认、
+  离线模式、缓存以及已发布 SHA256/文件大小的完整性校验。
+- 新增 `genmat models list|info|pull`、`GET /v1/models` 和生成请求的
+  `model` 字段，后续 GenMat、Matra、Alexandria 与 OMat24 模型无需硬编码路径。
+- `GENMAT_*` 是正式环境变量；已有 `GENIM_*` 仍以较低优先级兼容。
 
 ## 0.5 版的核心改进
 
@@ -32,7 +52,7 @@ GenMat 是一个用于晶体结构构建、生成、验证、基准评测与筛�
   不会伪装成独立计算得到的热力学证据。
 - 新增 `AlexandriaMatraBackend`，可调用公开的 Matra 生成/弛豫服务；其能量
   以 `relaxed_energy_per_atom` 保存并标注来源。由于公开响应没有给出计算器
-  与参考零点，GenIM 不把它误称为 DFT、形成能或凸包能。
+  与参考零点，GenMat 不把它误称为 DFT、形成能或凸包能。
 - `ScientificObservable` 区分条件目标、模型输出、后处理估计和独立计算值；
   `ScientificEvaluator` 可扩展 MLIP、凸包、DFT、声子等证据阶段。
 - 非机器学习后备生成器改用共价半径、堆积率、周期最小镜像距离和最远点采样，
@@ -44,11 +64,11 @@ GenMat 是一个用于晶体结构构建、生成、验证、基准评测与筛�
 
 - 新增与模型无关的 `GenerationBackend`、`GenerationConstraints`、
   `GeneratedCandidate` 和 `EnsembleGenerator` 契约；旧名称保留为 0.3 兼容别名。
-- `GenIMBackend` 和可选 `MatraBackend` 共用 ASE 转换、结构验证、条件审计
+- `GenMatBackend` 和可选 `MatraBackend` 共用 ASE 转换、结构验证、条件审计
   和跨模型去重流程。
 - Matra checkpoint 使用 PyTorch 权重安全模式、SHA256、结构检查和重建模型
   权重精确匹配，不调用历史的非安全便捷加载路径。
-- `genim generate-ensemble` 同时输出通过筛选的 CIF、完整 `candidates.jsonl`
+- `genmat generate-ensemble` 同时输出通过筛选的 CIF、完整 `candidates.jsonl`
   审计记录和按来源统计的 `ensemble-report.json`。
 - Matra 可按稳定性、精确元素集合、化学计量、空间群、checkpoint 特有
   Wyckoff 索引和连续凸包目标生成；未支持或无法直接验证的条件会明确写入记录。
@@ -59,19 +79,19 @@ GenMat 是一个用于晶体结构构建、生成、验证、基准评测与筛�
   `intermetallic` 作为显式兼容模式保留。
 - `any` 模式的词表可以覆盖全部 118 种真实元素，并支持精确的元素白名单
   和黑名单。
-- 新增稳定的 Python API `GenIM.from_checkpoint(...)` 和批量约束采样。
+- 新增稳定的 Python API `GenMat.from_checkpoint(...)` 和批量约束采样。
 - 新检查点采用带版本的格式，记录 SHA256、训练参数和数据来源；旧 v1
   检查点仍可加载。
 - 新训练默认采用 `periodic8` 元素描述符：原子序数、共价半径、质量、
   周期、族以及金属/类金属/非金属指示。旧模型仍使用原来的四维投影，
   不破坏权重兼容性。
-- 验证返回可审计的物理/几何指标；`genim benchmark` 报告有效率、唯一率、
+- 验证返回可审计的物理/几何指标；`genmat benchmark` 报告有效率、唯一率、
   元素覆盖和空间群覆盖。
 - 测试和 CI 覆盖通用化学策略、旧检查点兼容、批量生成与原有工作流。
 
 ## 科学适用边界
 
-GenIM 给出的是满足表示和快速筛选条件的候选结构，并不自动证明结构可合成、
+GenMat 给出的是满足表示和快速筛选条件的候选结构，并不自动证明结构可合成、
 动力学稳定或处于热力学基态。合理的证据层级是：
 
 1. 语法与解码检查：结构表示可构造；
@@ -96,7 +116,7 @@ python -m pip install -e ".[all]"
 
 要求 Python 3.9 或更高版本。
 
-Matra 是可选后端，并采用独立的非商业科研许可证。GenIM 不捆绑 Matra
+Matra 是可选后端，并采用独立的非商业科研许可证。GenMat 不捆绑 Matra
 代码或权重，应从获准来源单独安装：
 
 ```powershell
@@ -112,7 +132,7 @@ python -m pip install -e ..\matra-genoa-preview
 | `metallic` | 金属和可选类金属 | 1 |
 | `intermetallic` | 旧版金属间化合物范围 | 2 |
 
-还可以用 `allowed_elements` 和 `excluded_elements` 精确限制元素。GenIM 没有
+还可以用 `allowed_elements` 和 `excluded_elements` 精确限制元素。GenMat 没有
 采用含糊的 `inorganic` 自动分类，因为仅从元素集合不能无歧义地判断“无机”。
 
 ```yaml
@@ -145,15 +165,15 @@ generate:
 内置示例同时包含金属间、离子、共价和半导体结构：
 
 ```powershell
-genim examples-make --out data/examples.jsonl
-genim preprocess --in data/examples.jsonl --out data/examples.tokens.pt `
+genmat examples-make --out data/examples.jsonl
+genmat preprocess --in data/examples.jsonl --out data/examples.tokens.pt `
   --seed-all-elements --seed-all-hall --chemistry any
-genim train --data data/examples.tokens.pt --out checkpoints/example.pt `
+genmat train --data data/examples.tokens.pt --out checkpoints/example.pt `
   --steps 200 --element-emb features --element-feature-set periodic8
-genim generate --ckpt checkpoints/example.pt --n 10 --out-dir output/cif `
+genmat generate --ckpt checkpoints/example.pt --n 10 --out-dir output/cif `
   --chemistry any --nelements-min 1
-genim validate --cif-dir output/cif
-genim benchmark --cif-dir output/cif --out output/cif/benchmark.json
+genmat validate --cif-dir output/cif
+genmat benchmark --cif-dir output/cif --out output/cif/benchmark.json
 ```
 
 ## 使用 Materials Project 训练通用模型
@@ -162,13 +182,13 @@ genim benchmark --cif-dir output/cif --out output/cif/benchmark.json
 `.mp_api_key`：
 
 ```powershell
-genim mp-download --chemistry any --max-atoms 100 --eah-max 0.5 `
+genmat mp-download --chemistry any --max-atoms 100 --eah-max 0.5 `
   --nelements-min 1 --nelements-max 5 --limit 50000 --out data/mp.jsonl
-genim preprocess --in data/mp.jsonl --out data/mp.tokens.pt `
+genmat preprocess --in data/mp.jsonl --out data/mp.tokens.pt `
   --seed-all-elements --seed-all-hall --chemistry any
-genim inspect --in data/mp.jsonl --wyckoff
-genim inspect --in data/mp.tokens.pt
-genim train --data data/mp.tokens.pt --out checkpoints/mp_general.pt `
+genmat inspect --in data/mp.jsonl --wyckoff
+genmat inspect --in data/mp.tokens.pt
+genmat train --data data/mp.tokens.pt --out checkpoints/mp_general.pt `
   --steps 20000 --val-fraction 0.1 `
   --element-emb features --element-feature-set periodic8
 ```
@@ -180,12 +200,12 @@ genim train --data data/mp.tokens.pt --out checkpoints/mp_general.pt `
 ## 默认生成服务
 
 HTTP 服务带有可直接使用的默认设置，并接受任意有效化学组成。
-`backend="auto"` 依次使用本地 Matra/GenIM checkpoint、显式启用的远程
+`backend="auto"` 依次使用本地 Matra/GenMat checkpoint、显式启用的远程
 Matra/Alexandria 服务和化学感知 algorithmic seed。后者会明确标记为
 非机器学习预测：
 
 ```powershell
-genim serve --host 127.0.0.1 --port 8000
+genmat serve --host 127.0.0.1 --port 8000
 ```
 
 ```powershell
@@ -194,18 +214,41 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/generate `
   -Body '{"formula":"LiFePO4","spacegroup_number":62,"n":4,"seed":7}'
 ```
 
-服务提供 `/v1/health`、`/v1/capabilities`、`/v1/generate` 和 `/docs`。
-可用 `GENIM_MATRA_CHECKPOINT`、`GENIM_MATRA_SHA256`、
-`GENIM_MODEL_CHECKPOINT`、`GENIM_MODEL_SHA256` 配置模型；设置
-`GENIM_ENABLE_ALEXANDRIA=1` 可启用远程后端。显式请求不可用的 checkpoint
+服务提供 `/v1/health`、`/v1/capabilities`、`/v1/models`、`/v1/generate`
+和 `/docs`。可用 `GENMAT_MATRA_CHECKPOINT`、`GENMAT_MATRA_SHA256`、
+`GENMAT_MODEL_CHECKPOINT`、`GENMAT_MODEL_SHA256` 配置模型；设置
+`GENMAT_ENABLE_ALEXANDRIA=1` 可启用远程后端。已有 `GENIM_*` 名称继续作为
+较低优先级兼容变量。显式请求不可用的 checkpoint
 后端会返回错误，不会把算法种子伪装成模型预测。
+
+## 统一模型访问
+
+```powershell
+genmat models list
+genmat models info matra/genoa-mpas-med@0.2
+genmat models pull matra/genoa-mpas-med@0.2 --accept-license
+genmat generate-ensemble --model matra/genoa-mpas-med@0.2 `
+  --accept-model-license --elements Na Cl --stoichiometry 1 1 `
+  --n-per-backend 8 --out-dir output/matra-nacl
+```
+
+```python
+from genmat import ModelRegistry
+
+models = ModelRegistry.default()
+spec = models.info("matra-v02-med")
+backend = models.load_backend(spec, accept_license=True, device="auto")
+```
+
+模型进入目录不等于它已被证明适用于任意化学体系。解释结果前仍应检查训练域、
+数据覆盖和 model card。详见[模型访问与来源](docs/MODELS.md)。
 
 ## Python API
 
 ```python
-from genim import ChemistryPolicy, GenIM, SamplingConfig
+from genmat import ChemistryPolicy, GenMat, SamplingConfig
 
-model = GenIM.from_checkpoint("checkpoints/mp_general.pt", device="auto")
+model = GenMat.from_checkpoint("checkpoints/mp_general.pt", device="auto")
 results = model.sample(
     config=SamplingConfig(
         n=64, batch_size=16, max_sites=25, min_sites=2,
@@ -225,17 +268,17 @@ records = [result.to_record() for result in results]  # 含检查点哈希和验
 当前批量采样器对每个 token 位置只进行一次模型前向计算，服务接口和大批量
 测试可以直接复用。KV cache 是后续性能优化，不影响现有结果与来源记录格式。
 
-## GenIM 与 Matra 联合生成
+## GenMat 与 Matra 联合生成
 
 联合接口把两套模型视为独立候选来源，不拼接或平均不兼容的权重。
 
 ```powershell
-genim matra-checkpoint-info `
+genmat matra-checkpoint-info `
   --ckpt ..\matra-genoa-preview\checkpoints\matra-v02-med.ckpt `
   --expected-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa
 
-genim generate-ensemble `
-  --genim-ckpt checkpoints\mp_general.pt `
+genmat generate-ensemble `
+  --genmat-ckpt checkpoints\mp_general.pt `
   --matra-ckpt ..\matra-genoa-preview\checkpoints\matra-v02-med.ckpt `
   --matra-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa `
   --elements Na Cl --stoichiometry 1 1 --stability stable `
@@ -245,13 +288,13 @@ genim generate-ensemble `
 Python API：
 
 ```python
-from genim import (
-    EnsembleGenerator, GenerationConstraints, GenerationSettings, GenIMBackend,
+from genmat import (
+    EnsembleGenerator, GenerationConstraints, GenerationSettings, GenMatBackend,
     MatraBackend, write_ensemble_run,
 )
 
 backends = [
-    GenIMBackend.from_checkpoint("checkpoints/mp_general.pt"),
+    GenMatBackend.from_checkpoint("checkpoints/mp_general.pt"),
     MatraBackend.from_checkpoint(
         "../matra-genoa-preview/checkpoints/matra-v02-med.ckpt",
         expected_sha256="4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa",
@@ -274,29 +317,30 @@ write_ensemble_run(run, "output/hybrid-nacl")
 ## 组成约束生成
 
 ```powershell
-genim synth --elements Na Cl --nelements 2 --ratios 1 1
-genim synth --elements Fe O --nelements 2 --ratios 2 3
-genim synth --elements Li Fe P O --nelements 4 `
+genmat synth --elements Na Cl --nelements 2 --ratios 1 1
+genmat synth --elements Fe O --nelements 2 --ratios 2 3
+genmat synth --elements Li Fe P O --nelements 4 `
   --ratios 1 1 1 4 --ratio-mode ratio
 ```
 
 `X` 表示元素必须存在、但比例不固定：
 
 ```powershell
-genim synth --elements Li Fe P O --nelements 4 `
+genmat synth --elements Li Fe P O --nelements 4 `
   --ratios 1 X 1 X --ratio-mode ratio
 ```
 
 ## 检查点与可复现性
 
 大数据和权重不提交到 Git，应作为不可变的 GitHub Release 资源发布并记录
-SHA256。v2 检查点包含格式版本、模型/词表/分词配置、GenIM 版本、时间、
+SHA256。v2 检查点包含格式版本、模型/词表/分词配置、GenMat 版本（旧文件键名
+仍可能是 `genim_version`）、时间、
 随机种子、训练步数、token 数据 SHA256、原始数据来源和数据统计。可用
-`genim.checkpoints.download_checkpoint(...)` 原子下载并验证哈希。详见
+`genmat.checkpoints.download_checkpoint(...)` 原子下载并验证哈希。详见
 [检查点格式](docs/CHECKPOINT_FORMAT.md)。
 
 ```powershell
-genim checkpoint-info --ckpt checkpoints/mp_train_fullsg_60.pt `
+genmat checkpoint-info --ckpt checkpoints/mp_train_fullsg_60.pt `
   --expected-sha256 3777449fe396522c0173aaa699c70c99b4d28e26b436200545f08f86ff28173c
 ```
 
@@ -307,8 +351,8 @@ genim checkpoint-info --ckpt checkpoints/mp_train_fullsg_60.pt `
 ## 可选科学筛选
 
 ```powershell
-genim score --conf conf.yml --cif-dir output/cif
-genim surface-screen --input-dir output/cif --out-dir output/surfaces
+genmat score --conf conf.yml --cif-dir output/cif
+genmat surface-screen --input-dir output/cif --out-dir output/surfaces
 ```
 
 MLIP 能量和凸包结果继承模型与参考集的不确定性，不能在没有校准的情况下与

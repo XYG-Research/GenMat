@@ -3,7 +3,7 @@
   "checked_at": "2026-07-30T11:35:00+02:00",
   "source_directory": "https://alexandria.icams.rub.de/data/matra_checkpoints/",
   "license_scope": "non-commercial research, education, evaluation, and personal use",
-  "integration_policy": "manifest-only; GenIM does not redistribute Matra code or weights",
+  "integration_policy": "manifest-only; GenMat does not redistribute Matra code or weights",
   "scientific_scope": "Conditioned crystal hypothesis generation; prompts are not independent evidence of stability or constraint satisfaction.",
   "metadata_limitations": "Training-set composition and model-card metrics are not encoded in the inspected checkpoint payloads; consult the upstream Matra documentation before making domain-coverage claims.",
   "files": [

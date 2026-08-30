@@ -13,6 +13,7 @@ from .backends import (
     GenerationCondition,
     GenerationConstraints,
     GenerationSettings,
+    GenMatBackend,
     GenIMBackend,
     MatraBackend,
     MUTATION_METHOD,
@@ -27,6 +28,17 @@ from .backends import (
     write_ensemble_run,
 )
 from .chem import ChemistryPolicy
+from .models import (
+    ModelIntegrityError,
+    ModelLicenseError,
+    ModelOfflineError,
+    ModelRegistry,
+    ModelRegistryError,
+    ModelResolutionError,
+    ModelSpec,
+    UnknownModelError,
+    UnsupportedModelBackendError,
+)
 from .service import GenerationRequest, GeneratorService, ServiceConfig
 
 __all__ = [
@@ -46,11 +58,19 @@ __all__ = [
     "GenerationSettings",
     "GenerationRequest",
     "GenMat",
+    "GenMatBackend",
     "GenIM",
     "GenIMBackend",
     "GeneratedStructure",
     "MatraBackend",
     "MUTATION_METHOD",
+    "ModelIntegrityError",
+    "ModelLicenseError",
+    "ModelOfflineError",
+    "ModelRegistry",
+    "ModelRegistryError",
+    "ModelResolutionError",
+    "ModelSpec",
     "ObservableRole",
     "ProposalConfig",
     "ProposedStructure",
@@ -59,6 +79,8 @@ __all__ = [
     "SamplingConfig",
     "GeneratorService",
     "ServiceConfig",
+    "UnknownModelError",
+    "UnsupportedModelBackendError",
     "__version__",
     "__title__",
     "inspect_matra_checkpoint",
@@ -67,5 +89,5 @@ __all__ = [
     "write_ensemble_run",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __title__ = "GenMat"
