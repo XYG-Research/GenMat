@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 
-from genim.model import CausalTransformerLM, ModelConfig
+from genmat.model import CausalTransformerLM, ModelConfig
 
 
 def test_model_init_emits_no_nested_tensor_warning() -> None:

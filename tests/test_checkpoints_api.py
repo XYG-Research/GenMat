@@ -4,11 +4,13 @@ from pathlib import Path
 
 import torch
 import pytest
+from ase import Atoms
 
-from genim import ChemistryPolicy, GenMat, GenIM, SamplingConfig
-from genim.checkpoints import CheckpointError, load_model_checkpoint, sha256_file
-from genim.model import CausalTransformerLM, ModelConfig
-from genim.train import train_lm
+from genmat import ChemistryPolicy, GeneratedStructure, GenMat, GenIM, SamplingConfig
+from genmat.checkpoints import CheckpointError, load_model_checkpoint, sha256_file
+from genmat.model import CausalTransformerLM, ModelConfig
+from genmat.train import train_lm
+from genmat.validate import ValidationReport
 
 
 def test_genmat_is_primary_api_with_genim_compatibility() -> None:
@@ -70,6 +72,23 @@ def test_legacy_checkpoint_load_has_hash_and_schema_version(tmp_path: Path) -> N
     assert loaded.device.type == "cpu"
     with pytest.raises(CheckpointError, match="SHA256 mismatch"):
         load_model_checkpoint(path, device="cpu", expected_sha256="0" * 64)
+
+
+def test_valid_cif_writer_uses_genmat_prefix_and_skips_legacy_indices(tmp_path: Path) -> None:
+    (tmp_path / "genim_00000.cif").write_text("legacy", encoding="utf-8")
+    result = GeneratedStructure(
+        token_ids=[],
+        tokens=[],
+        atoms=Atoms("Na", positions=[[0.0, 0.0, 0.0]], cell=[4.0, 4.0, 4.0], pbc=True),
+        validation=ValidationReport(valid=True, reason="ok", metrics={}),
+        checkpoint_sha256="0" * 64,
+        chemistry_policy={"mode": "any"},
+        sampling={},
+    )
+
+    paths = GenMat.write_valid_cifs([result], tmp_path)
+
+    assert [path.name for path in paths] == ["genmat_00001.cif"]
 
 
 def test_public_api_returns_provenance_even_for_rejected_candidates(tmp_path: Path) -> None:
@@ -176,3 +195,4 @@ def test_training_writes_v2_provenance_and_validation_loss(tmp_path: Path) -> No
     assert loaded.metadata["validation_size"] == 1
     assert loaded.metadata["validation_loss"] is not None
     assert loaded.metadata["dataset_name"] == "tokens.pt"
+    assert loaded.metadata["genmat_version"] == loaded.metadata["genim_version"]

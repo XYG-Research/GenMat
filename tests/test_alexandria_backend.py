@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from genim.backends import (
+from genmat.backends import (
     AlexandriaMatraBackend,
     GenerationConstraints,
     GenerationSettings,

@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from ase.build import bulk
 
-from genim.chem import ChemistryPolicy, available_elements
-from genim.validate import validate_atoms_report
+from genmat.chem import ChemistryPolicy, available_elements
+from genmat.validate import validate_atoms_report
 
 
 def test_any_policy_accepts_general_materials_chemistry() -> None:

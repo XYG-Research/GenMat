@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from genim.models import (
+from genmat.models import (
     ModelIntegrityError,
     ModelLicenseError,
     ModelOfflineError,
@@ -62,6 +62,10 @@ def test_default_catalog_is_packaged_filterable_and_alias_resolvable() -> None:
     ]
     assert registry.info("matra-v02-med").id == "matra/genoa-mpas-med@0.2"
     assert registry.info("ESEN_30M_OAM").backend == "omat24"
+    legacy = registry.info("genim/mp-fullsg-60")
+    assert legacy.backend == "genmat"
+    assert "GenMat/checkpoints/mp_train_fullsg_60.pt" in legacy.source["local_paths"]
+    assert "GenIM/checkpoints/mp_train_fullsg_60.pt" in legacy.source["local_paths"]
     with pytest.raises(UnknownModelError, match="Unknown model"):
         registry.info("missing/model")
 
@@ -91,7 +95,7 @@ def test_optional_dependency_probe_uses_distribution_to_import_mapping(
         checked.append(name)
         return object() if name == "pymatgen" else None
 
-    monkeypatch.setattr("genim.models.importlib.util.find_spec", fake_find_spec)
+    monkeypatch.setattr("genmat.models.importlib.util.find_spec", fake_find_spec)
     registry = ModelRegistry([spec], cache_dir=tmp_path)
     assert registry.missing_optional_dependencies(spec) == (
         "fairchem-core",
@@ -338,7 +342,7 @@ def test_load_backend_dispatches_omat24_calculator(
     sentinel = object()
     captured = {}
 
-    import genim.mlip as mlip
+    import genmat.mlip as mlip
 
     def fake_builder(**kwargs):
         captured.update(kwargs)

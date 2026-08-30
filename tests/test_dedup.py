@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from ase import Atoms
 
-from genim.dedup import atoms_hash
+from genmat.dedup import atoms_hash
 
 
 def test_atoms_hash_is_stable_under_small_perturbations() -> None:

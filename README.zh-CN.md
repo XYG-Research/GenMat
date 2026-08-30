@@ -333,8 +333,8 @@ genmat synth --elements Li Fe P O --nelements 4 `
 ## 检查点与可复现性
 
 大数据和权重不提交到 Git，应作为不可变的 GitHub Release 资源发布并记录
-SHA256。v2 检查点包含格式版本、模型/词表/分词配置、GenMat 版本（旧文件键名
-仍可能是 `genim_version`）、时间、
+SHA256。v2 检查点包含格式版本、模型/词表/分词配置、正式的
+`genmat_version` 与兼容的 `genim_version` 键、时间、
 随机种子、训练步数、token 数据 SHA256、原始数据来源和数据统计。可用
 `genmat.checkpoints.download_checkpoint(...)` 原子下载并验证哈希。详见
 [检查点格式](docs/CHECKPOINT_FORMAT.md)。

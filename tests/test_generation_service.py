@@ -4,9 +4,9 @@ from collections import Counter
 
 import pytest
 
-from genim.composition import parse_formula_counts, ratios_to_integer_counts
-from genim.server import create_app
-from genim.service import BackendUnavailableError, GeneratorService, ServiceConfig
+from genmat.composition import parse_formula_counts, ratios_to_integer_counts
+from genmat.server import create_app
+from genmat.service import BackendUnavailableError, GeneratorService, ServiceConfig
 
 
 def seed_only_service() -> GeneratorService:

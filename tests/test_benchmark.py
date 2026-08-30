@@ -5,7 +5,7 @@ from pathlib import Path
 from ase.build import bulk
 from ase.io import write
 
-from genim.benchmark import benchmark_cif_dir, write_benchmark_report
+from genmat.benchmark import benchmark_cif_dir, write_benchmark_report
 
 
 def test_benchmark_reports_validity_uniqueness_and_coverage(tmp_path: Path) -> None:

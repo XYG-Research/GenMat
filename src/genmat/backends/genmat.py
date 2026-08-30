@@ -1,10 +1,5 @@
-"""Canonical module name for the GenMat checkpoint backend.
+"""Brand-correct alias for the checkpoint-backed GenMat backend."""
 
-The implementation still lives in ``genim.backends.genim`` during the
-compatibility window; this module provides the brand-correct extension path.
-"""
+from .genim import GenIMBackend, GenMatBackend
 
-from .._compat import reexport
-
-reexport("genim.backends.genim", globals())
-del reexport
+__all__ = ["GenMatBackend", "GenIMBackend"]

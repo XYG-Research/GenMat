@@ -10,7 +10,7 @@
         "genmat-legacy"
       ],
       "provider": "genmat",
-      "backend": "genim",
+      "backend": "genmat",
       "task": "generation",
       "version": "0.1.0",
       "format": "genmat-checkpoint-v1",
@@ -20,6 +20,7 @@
         "url": "https://github.com/XYG-Research/GenMat/releases/download/v0.1.0/mp_train_fullsg_60.pt",
         "local_paths": [
           "checkpoints/mp_train_fullsg_60.pt",
+          "GenMat/checkpoints/mp_train_fullsg_60.pt",
           "GenIM/checkpoints/mp_train_fullsg_60.pt"
         ]
       },

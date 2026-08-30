@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from genim.config import DEFAULT_CONFIG
+from genmat.config import DEFAULT_CONFIG
 
 
 def test_default_output_base_is_output_root() -> None:

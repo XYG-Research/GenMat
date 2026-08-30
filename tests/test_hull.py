@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from genim.hull import compute_e_above_hull_eV_per_atom
+from genmat.hull import compute_e_above_hull_eV_per_atom
 
 
 def test_compute_e_above_hull_binary_simple() -> None:

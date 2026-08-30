@@ -5,6 +5,11 @@ semantic versioning for public APIs and serialized schemas.
 
 ## Unreleased
 
+- Canonical GenMat generation now emits `genmat` backend, candidate, CIF,
+  temporary-directory, and provenance identifiers while continuing to accept
+  the legacy GenIM namespace, backend selector, environment variables, model
+  aliases, paths, and checkpoint metadata keys.
+
 ## 0.6.0
 
 - Made `genmat` the canonical distribution/import namespace and made `GenMat`

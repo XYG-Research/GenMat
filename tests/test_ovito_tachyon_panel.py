@@ -5,7 +5,7 @@ from pathlib import Path
 from ase import Atoms
 from ase.io import write
 
-from genim.ovito_tachyon_panel import _display_names, _expand_atoms_for_visualization, discover_structure_files
+from genmat.ovito_tachyon_panel import _display_names, _expand_atoms_for_visualization, discover_structure_files
 
 
 def _write_demo_files(tmp_path: Path) -> tuple[Path, Path, Path]:

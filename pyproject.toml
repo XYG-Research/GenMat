@@ -85,7 +85,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-genim = ["data/*.json"]
+genmat = ["data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

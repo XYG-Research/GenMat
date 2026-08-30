@@ -17,9 +17,9 @@ or scientific question.
 | `fairchem/esen-30m-oam@omat24` | relaxation and energy | OMat24/eSEN | Hugging Face commit, LFS SHA256, and byte size pinned; gated upstream terms |
 
 The machine-readable source of truth is packaged as
-`genim.data/model-catalog-v1.json`. The legacy package path is intentional: the
-`genmat` and `genim` namespaces share one compatibility implementation during
-the 0.x migration window.
+`genmat.data/model-catalog-v1.json`. The `genim` import namespace and historical
+model aliases remain available for compatibility during the 0.x migration
+window.
 
 ## Command line
 

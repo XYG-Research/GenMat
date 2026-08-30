@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from genim.score import _composition_display_fields
+from genmat.score import _composition_display_fields
 
 
 def test_composition_display_fields_include_ratio_percent_and_counts() -> None:

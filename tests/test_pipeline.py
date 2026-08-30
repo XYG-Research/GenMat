@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from genim.checkpoints import safe_torch_load
-from genim.decode import DecodeConfig, decode_tokens_to_atoms
-from genim.examples import make_examples_jsonl
-from genim.preprocess import preprocess_jsonl_to_tokens
-from genim.validate import validate_atoms
+from genmat.checkpoints import safe_torch_load
+from genmat.decode import DecodeConfig, decode_tokens_to_atoms
+from genmat.examples import make_examples_jsonl
+from genmat.preprocess import preprocess_jsonl_to_tokens
+from genmat.validate import validate_atoms
 
 
 def test_examples_preprocess_and_decode(tmp_path: Path) -> None:

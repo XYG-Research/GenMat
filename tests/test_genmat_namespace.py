@@ -18,7 +18,7 @@ from genmat.service import GeneratorService
 
 def test_genmat_is_canonical_namespace_with_legacy_compatibility() -> None:
     assert genmat.GenMat is genim.GenMat
-    assert issubclass(genim.GenIM, genmat.GenMat)
+    assert genim.GenIM is genmat.GenIM
     assert genmat.__title__ == "GenMat"
     assert genmat.__version__ == "0.6.0"
 
@@ -26,10 +26,19 @@ def test_genmat_is_canonical_namespace_with_legacy_compatibility() -> None:
 def test_genmat_lightweight_submodules_reexport_public_contracts() -> None:
     assert issubclass(GenIMBackend, GenMatBackend)
     assert LegacyBackend is GenIMBackend
-    assert GenMatBackend.backend_name == "genim"
+    assert genim.GenIMBackend is genmat.GenIMBackend
+    assert GenMatBackend.backend_name == "genmat"
+    assert GenIMBackend.backend_name == "genim"
     assert GenerationConstraints is genim.GenerationConstraints
     assert load_model_checkpoint is legacy_load_model_checkpoint
     assert GeneratorService is LegacyGeneratorService
+
+
+def test_legacy_shims_preserve_private_helper_identity() -> None:
+    from genim.mlip import _find_local_omat24_checkpoint as legacy_helper
+    from genmat.mlip import _find_local_omat24_checkpoint as canonical_helper
+
+    assert legacy_helper is canonical_helper
 
 
 def test_python_m_genmat_uses_genmat_brand(monkeypatch, capsys) -> None:

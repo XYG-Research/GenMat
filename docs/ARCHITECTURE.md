@@ -52,8 +52,8 @@ Materials Project / JSONL / examples
 - `api.py`: reusable model/result/provenance contract.
 - `backends/base.py`: backend-neutral constraints, generation settings,
   capability declarations, candidate records, and three-state evidence.
-- `backends/genim.py`: canonical `GenMatBackend` plus the `GenIMBackend`
-  compatibility subclass; the historical wire ID remains `genim`.
+- `backends/genim.py`: canonical `GenMatBackend` emits the `genmat` backend ID;
+  the `GenIMBackend` compatibility subclass continues to emit `genim`.
 - `backends/matra.py`: optional, safely loaded Matra inference adapter.
 - `backends/alexandria.py`: optional public Matra/Alexandria generation and
   relaxation adapter with conservative energy semantics.

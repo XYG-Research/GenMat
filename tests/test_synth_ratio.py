@@ -5,8 +5,8 @@ import math
 
 from ase import Atoms
 
-from genim.synth import _RatioConstraint, _apply_supercell_plan, _plan_ratio_supercell, _ratio_constraint
-from genim.validate import validate_atoms
+from genmat.synth import _RatioConstraint, _apply_supercell_plan, _plan_ratio_supercell, _ratio_constraint
+from genmat.validate import validate_atoms
 
 
 def _l12_parent() -> Atoms:
