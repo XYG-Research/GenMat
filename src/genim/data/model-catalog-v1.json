@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "catalog_name": "GenMat built-in model catalog",
+  "models": [
+    {
+      "id": "genmat/mp-fullsg-legacy@0.1.0",
+      "aliases": [
+        "genim/mp-fullsg-60",
+        "mp_train_fullsg_60",
+        "genmat-legacy"
+      ],
+      "provider": "genmat",
+      "backend": "genim",
+      "task": "generation",
+      "version": "0.1.0",
+      "format": "genmat-checkpoint-v1",
+      "filename": "mp_train_fullsg_60.pt",
+      "source": {
+        "type": "http",
+        "url": "https://github.com/XYG-Research/GenMat/releases/download/v0.1.0/mp_train_fullsg_60.pt",
+        "local_paths": [
+          "checkpoints/mp_train_fullsg_60.pt",
+          "GenIM/checkpoints/mp_train_fullsg_60.pt"
+        ]
+      },
+      "sha256": "3777449fe396522c0173aaa699c70c99b4d28e26b436200545f08f86ff28173c",
+      "size_bytes": 21643498,
+      "license": "BSD-3-Clause for GenMat code; checkpoint use remains subject to its dataset provenance and release terms",
+      "license_url": "https://github.com/XYG-Research/GenMat/releases/tag/v0.1.0",
+      "requires_license_acceptance": false,
+      "optional_dependencies": [],
+      "capabilities": {
+        "elements": "sampling_filter",
+        "spacegroup_number": "conditioning"
+      },
+      "description": "Historical format-v1 checkpoint retained for reproducibility. Its legacy training domain must not be presented as a general-chemistry GenMat model."
+    },
+    {
+      "id": "matra/genoa-mpas@0.2",
+      "aliases": ["Matra-Genoa-MPAS", "matra-v02"],
+      "provider": "matra",
+      "backend": "matra",
+      "task": "generation",
+      "version": "0.2",
+      "format": "matra-genoa-checkpoint",
+      "filename": "matra-v02.ckpt",
+      "source": {
+        "type": "http",
+        "url": "https://alexandria.icams.rub.de/data/matra_checkpoints/matra-v02.ckpt",
+        "local_paths": [
+          "matra-genoa-preview/checkpoints/matra-v02.ckpt"
+        ]
+      },
+      "sha256": "96e201d60a1b2fa0e4ce0b9640b3dd7ff0e6b4ecccc976bae650e569a462448a",
+      "size_bytes": 164773383,
+      "license": "Matra upstream non-commercial research, education, evaluation, and personal-use terms",
+      "license_url": "https://github.com/ppdebreuck/matra-genoa-preview",
+      "requires_license_acceptance": true,
+      "optional_dependencies": ["matra", "pymatgen"],
+      "capabilities": {
+        "elements": "conditioning",
+        "stoichiometry": "conditioning",
+        "spacegroup_number": "conditioning",
+        "matra_wyckoff_indices": "conditioning",
+        "stability": "conditioning",
+        "target_e_hull": "conditioning"
+      },
+      "description": "Full Matra Genoa MPAS generation checkpoint with EHULL and EHULL_DISC property tokens."
+    },
+    {
+      "id": "matra/genoa-mpas-med@0.2",
+      "aliases": ["Matra-Genoa-MPAS-Med", "matra-v02-med"],
+      "provider": "matra",
+      "backend": "matra",
+      "task": "generation",
+      "version": "0.2",
+      "format": "matra-genoa-checkpoint",
+      "filename": "matra-v02-med.ckpt",
+      "source": {
+        "type": "http",
+        "url": "https://alexandria.icams.rub.de/data/matra_checkpoints/matra-v02-med.ckpt",
+        "local_paths": [
+          "matra-genoa-preview/checkpoints/matra-v02-med.ckpt"
+        ]
+      },
+      "sha256": "4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa",
+      "size_bytes": 24496059,
+      "license": "Matra upstream non-commercial research, education, evaluation, and personal-use terms",
+      "license_url": "https://github.com/ppdebreuck/matra-genoa-preview",
+      "requires_license_acceptance": true,
+      "optional_dependencies": ["matra", "pymatgen"],
+      "capabilities": {
+        "elements": "conditioning",
+        "stoichiometry": "conditioning",
+        "spacegroup_number": "conditioning",
+        "matra_wyckoff_indices": "conditioning",
+        "stability": "conditioning",
+        "target_e_hull": "conditioning"
+      },
+      "description": "Medium Matra Genoa MPAS generation checkpoint with EHULL and EHULL_DISC property tokens."
+    },
+    {
+      "id": "matra/genoa-mp@0.2",
+      "aliases": ["Matra-Genoa-MP", "matraMP"],
+      "provider": "matra",
+      "backend": "matra",
+      "task": "generation",
+      "version": "0.2",
+      "format": "matra-genoa-checkpoint",
+      "filename": "matraMP.ckpt",
+      "source": {
+        "type": "http",
+        "url": "https://alexandria.icams.rub.de/data/matra_checkpoints/matraMP.ckpt",
+        "local_paths": [
+          "matra-genoa-preview/checkpoints/matraMP.ckpt"
+        ]
+      },
+      "sha256": "9aab06c452a263952c66682439ffdf7979ef2ff82137cb5196026d39230fefcf",
+      "size_bytes": 114318587,
+      "license": "Matra upstream non-commercial research, education, evaluation, and personal-use terms",
+      "license_url": "https://github.com/ppdebreuck/matra-genoa-preview",
+      "requires_license_acceptance": true,
+      "optional_dependencies": ["matra", "pymatgen"],
+      "capabilities": {
+        "elements": "conditioning",
+        "stoichiometry": "conditioning",
+        "spacegroup_number": "conditioning",
+        "matra_wyckoff_indices": "conditioning",
+        "stability": "conditioning",
+        "target_e_hull": "conditioning"
+      },
+      "description": "Matra Genoa MP generation checkpoint with EHULL and EHULL_DISC property tokens."
+    },
+    {
+      "id": "alexandria/gen-crystal@remote",
+      "aliases": ["alexandria", "alexandria-matra", "alexandria-gen-crystal"],
+      "provider": "alexandria",
+      "backend": "alexandria_matra",
+      "task": "generation",
+      "version": "remote",
+      "format": "remote-ndjson-api",
+      "filename": null,
+      "source": {
+        "type": "remote",
+        "base_url": "https://alexandria.icams.rub.de/mapi",
+        "endpoint": "/gen-crystal"
+      },
+      "sha256": null,
+      "size_bytes": null,
+      "license": "Upstream Matra/Alexandria service terms; GenMat makes no independent license grant or model-version claim",
+      "license_url": "https://alexandria.icams.rub.de/",
+      "requires_license_acceptance": true,
+      "optional_dependencies": [],
+      "capabilities": {
+        "elements": "conditioning",
+        "stoichiometry": "conditioning",
+        "spacegroup_number": "conditioning",
+        "relaxation": "remote_service"
+      },
+      "description": "Public remote generation-and-relaxation service. The upstream model and calculator may change and are not pinned by this catalog."
+    },
+    {
+      "id": "fairchem/esen-30m-oam@omat24",
+      "aliases": ["eSEN-30M-OAM", "esen_30m_oam", "OMAT24-eSEN"],
+      "provider": "fairchem",
+      "backend": "omat24",
+      "task": "relaxation",
+      "version": "omat24",
+      "format": "fairchem-pytorch-checkpoint",
+      "filename": "esen_30m_oam.pt",
+      "source": {
+        "type": "huggingface",
+        "repo_id": "facebook/OMAT24",
+        "filename": "esen_30m_oam.pt",
+        "revision": "8a5a78c7ba7b250a17e85fe85943c4608499d895",
+        "model_alias": "eSEN-30M-OAM",
+        "local_paths": [
+          "data/checkpoints/eSEN/esen_30m_oam.pt",
+          "adspp/data/checkpoints/eSEN/esen_30m_oam.pt"
+        ]
+      },
+      "sha256": "adf7d38e5bccb8e0334434c0bd65ac75661fb646891df17ecc89c19d111efde1",
+      "size_bytes": 362285045,
+      "license": "Upstream FAIR Chemistry and Hugging Face model terms; GenMat does not assert or broaden those terms",
+      "license_url": "https://huggingface.co/facebook/OMAT24",
+      "requires_license_acceptance": true,
+      "optional_dependencies": ["fairchem-core", "huggingface-hub"],
+      "capabilities": {
+        "relaxation": "calculated",
+        "energy": "calculated"
+      },
+      "description": "OMAT24 eSEN calculator checkpoint for relaxation and energy evaluation; the Hugging Face commit, LFS SHA256, and byte size are pinned."
+    }
+  ]
+}

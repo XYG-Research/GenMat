@@ -10,14 +10,14 @@ from typing import Any, Iterable
 import requests
 from tqdm import tqdm
 
-from .chem import IntermetallicFilter
-from .chem import METALLOIDS
+from .chem import ChemistryPolicy, METALLOIDS
 from .structure_format import StructureRecord, parse_pymatgen_mson_structure
 from .symmetry import extract_wyckoff_structure
 
 
 MP_BASE = "https://api.materialsproject.org"
 MP_SUMMARY = f"{MP_BASE}/materials/summary/"
+GENMAT_USER_AGENT = "genmat/0.6.0"
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,13 @@ def _mp_session(timeout: float) -> requests.Session:
     if not api_key:
         raise RuntimeError("Missing Materials Project API key (set MP_API_KEY or PMG_MAPI_KEY).")
     s = requests.Session()
-    s.headers.update({"X-API-KEY": api_key, "Accept": "application/json", "User-Agent": "genim/0.1.0"})
+    s.headers.update(
+        {
+            "X-API-KEY": api_key,
+            "Accept": "application/json",
+            "User-Agent": GENMAT_USER_AGENT,
+        }
+    )
     s.request = _wrap_timeout(s.request, timeout)
     return s
 
@@ -121,7 +127,7 @@ def download_mp_jsonl(
     out_path: Path,
     chemsys: str | None,
     elements: list[str] | None,
-    chemistry_filter: str = "intermetallic",
+    chemistry_filter: str = "any",
     max_atoms: int,
     eah_max: float,
     nelements_min: int,
@@ -138,20 +144,22 @@ def download_mp_jsonl(
 ) -> MPDownloadStats:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    chemistry_filter = str(chemistry_filter or "intermetallic").strip().lower()
-    if chemistry_filter not in ("intermetallic", "any"):
-        raise ValueError("chemistry_filter must be one of: intermetallic, any")
-
-    filt = IntermetallicFilter(include_metalloids=include_metalloids)
+    chemistry_filter = str(chemistry_filter or "any").strip().lower()
+    policy = ChemistryPolicy(
+        mode=chemistry_filter,
+        include_metalloids=include_metalloids,
+        min_elements=max(int(nelements_min), 2 if chemistry_filter == "intermetallic" else 1),
+        max_elements=nelements_max,
+    )
     session = _mp_session(timeout)
 
     allowed_elements = set(elements) if elements else None
 
     exclude_str = None
-    if chemistry_filter == "intermetallic":
+    if chemistry_filter in {"metallic", "intermetallic"}:
         # NOTE: MP API `exclude_elements` has a short maxLength (60). Use a compact list
-        # to cut out the most common non-metals; strict intermetallic filtering is still
-        # enforced locally below.
+        # to cut out the most common non-metals; the selected metallic policy is
+        # still enforced locally below.
         exclude_list = ["H", "C", "N", "O", "F", "P", "S", "Cl", "Br", "I"]
         if not include_metalloids:
             exclude_list += sorted(METALLOIDS)
@@ -209,7 +217,7 @@ def download_mp_jsonl(
             elems = doc.get("elements", None)
             if isinstance(elems, list):
                 elems_s = [str(x) for x in elems]
-                if chemistry_filter == "intermetallic" and not filt.is_intermetallic(elems_s):
+                if not policy.accepts_elements(elems_s):
                     skipped += 1
                     return False
                 if allowed_elements is not None and not set(elems_s).issubset(allowed_elements):
@@ -222,7 +230,7 @@ def download_mp_jsonl(
                 return False
 
             rec: StructureRecord = parse_pymatgen_mson_structure(struct_obj)
-            if chemistry_filter == "intermetallic" and not filt.is_intermetallic(set(rec.species)):
+            if not policy.accepts_elements(set(rec.species)):
                 skipped += 1
                 return False
             if allowed_elements is not None and not set(rec.species).issubset(allowed_elements):

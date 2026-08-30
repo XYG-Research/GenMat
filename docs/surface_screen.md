@@ -1,11 +1,11 @@
 # Surface Screen Module
 
-`genim surface-screen` scans CIF files from a directory, enumerates low-complexity slabs, records raw surface descriptors for every inequivalent termination, optionally searches compensated slabs for asymmetric/polar cuts, and can run a fast MLIP-based sanity screen before passing slabs to adsorption workflows.
+`genmat surface-screen` scans CIF files from a directory, enumerates low-complexity slabs, records raw surface descriptors for every inequivalent termination, optionally searches compensated slabs for asymmetric/polar cuts, and can run a fast MLIP-based sanity screen before passing slabs to adsorption workflows.
 
 ## Entry point
 
 ```powershell
-genim surface-screen --input-dir . --out-dir output/surface_screen --recursive
+genmat surface-screen --input-dir . --out-dir output/surface_screen --recursive
 ```
 
 Default behavior:
@@ -99,10 +99,10 @@ The best compensated candidate is selected by a score based on asymmetry, polari
 Enable with:
 
 ```powershell
-genim surface-screen --input-dir . --out-dir output/surface_screen --run-mlip
+genmat surface-screen --input-dir . --out-dir output/surface_screen --run-mlip
 ```
 
-The module uses the existing GenIM MLIP helpers and can resolve the alias:
+The module uses the existing GenMat MLIP helpers and can resolve the alias:
 
 - `eSEN-30M-MPtrj`
 
@@ -137,7 +137,7 @@ If MLIP is enabled, any pre-accepted slab can still become:
 For high-entropy or quinary intermetallics:
 
 ```powershell
-genim surface-screen `
+genmat surface-screen `
   --input-dir . `
   --out-dir output/surface_screen `
   --recursive `

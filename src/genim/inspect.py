@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import torch
 from tqdm import tqdm
 
+from .checkpoints import safe_torch_load
 from .structure_format import StructureRecord
 from .symmetry import extract_wyckoff_structure
 
@@ -18,13 +18,6 @@ class InspectConfig:
     top_k: int = 15
     wyckoff: bool = False
     symprec: float = 1e-2
-
-
-def _safe_torch_load(path: Path):
-    try:
-        return torch.load(path, map_location="cpu", weights_only=True)
-    except TypeError:
-        return torch.load(path, map_location="cpu")
 
 
 def inspect_jsonl(path: Path, *, cfg: InspectConfig) -> None:
@@ -106,7 +99,7 @@ def inspect_tokens(path: Path, *, cfg: InspectConfig) -> None:
     if not path.is_file():
         raise FileNotFoundError(path)
 
-    blob = _safe_torch_load(path)
+    blob = safe_torch_load(path)
     seq = blob["sequences"]
     lengths = blob["lengths"]
     vocab = blob["vocab"]

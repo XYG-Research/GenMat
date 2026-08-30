@@ -8,7 +8,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from .chem import allowed_intermetallic_elements
+from .checkpoints import sha256_file
+from .chem import available_elements
 from .structure_format import StructureRecord
 from .symmetry import extract_wyckoff_structure
 from .tokenizer import Vocab, bin_frac, bin_range
@@ -27,7 +28,10 @@ class TokenizeConfig:
     ang_max: float
     seed_all_elements: bool = False
     seed_all_hall: bool = False
-    include_metalloids: bool = False
+    chemistry_mode: str = "any"
+    include_metalloids: bool = True
+    allowed_elements: tuple[str, ...] | None = None
+    excluded_elements: tuple[str, ...] | None = None
 
     @property
     def max_len(self) -> int:
@@ -51,7 +55,12 @@ def _ensure_base_tokens(vocab: Vocab, cfg: TokenizeConfig) -> None:
             vocab.add(f"HALL_{h}")
 
     if cfg.seed_all_elements:
-        for el in allowed_intermetallic_elements(include_metalloids=cfg.include_metalloids):
+        for el in available_elements(
+            mode=cfg.chemistry_mode,
+            include_metalloids=cfg.include_metalloids,
+            allowed_elements=cfg.allowed_elements,
+            excluded_elements=cfg.excluded_elements,
+        ):
             vocab.add(f"E_{el}")
 
 
@@ -103,7 +112,10 @@ def preprocess_jsonl_to_tokens(
     ang_max: float,
     seed_all_elements: bool = False,
     seed_all_hall: bool = False,
-    include_metalloids: bool = False,
+    chemistry_mode: str = "any",
+    include_metalloids: bool = True,
+    allowed_elements: list[str] | None = None,
+    excluded_elements: list[str] | None = None,
 ) -> None:
     cfg = TokenizeConfig(
         max_sites=max_sites,
@@ -117,7 +129,10 @@ def preprocess_jsonl_to_tokens(
         ang_max=ang_max,
         seed_all_elements=seed_all_elements,
         seed_all_hall=seed_all_hall,
+        chemistry_mode=chemistry_mode,
         include_metalloids=include_metalloids,
+        allowed_elements=None if allowed_elements is None else tuple(allowed_elements),
+        excluded_elements=None if excluded_elements is None else tuple(excluded_elements),
     )
     vocab = Vocab.new()
     _ensure_base_tokens(vocab, cfg)
@@ -170,6 +185,11 @@ def preprocess_jsonl_to_tokens(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     blob = {
+        "format_version": 1,
+        "provenance": {
+            "source_name": in_path.name,
+            "source_sha256": sha256_file(in_path),
+        },
         "sequences": torch.tensor(sequences, dtype=torch.long),
         "lengths": torch.tensor(lengths, dtype=torch.long),
         "vocab": vocab.token_to_id,

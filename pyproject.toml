@@ -1,13 +1,27 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "genim"
-version = "0.1.0"
-description = "Generative Intermetallic crystal structure builder (Materials Project + Wyckoff/Transformer baseline)."
+name = "genmat"
+version = "0.6.0"
+description = "GenMat: a multi-backend, symmetry-aware crystal generation toolkit for general materials chemistry."
 readme = "README.md"
 requires-python = ">=3.9"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+keywords = ["materials-science", "crystal-structure", "generative-model", "symmetry", "ase"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Chemistry",
+  "Topic :: Scientific/Engineering :: Physics",
+]
 dependencies = [
   "ase>=3.26.0",
   "matplotlib>=3.7",
@@ -31,18 +45,48 @@ hull = [
   "pymatgen",
   "scipy",
 ]
+# Matra itself is installed separately from its approved source because its
+# non-commercial research license differs from GenMat's BSD license.
+matra = [
+  "pymatgen>=2024.1",
+]
+api = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+]
 all = [
+  "fastapi>=0.115,<1",
   "fairchem-core",
   "huggingface-hub",
   "pymatgen",
   "scipy",
+  "uvicorn[standard]>=0.30,<1",
+]
+test = [
+  "httpx>=0.27",
+  "pytest>=7.4",
 ]
 
+[project.urls]
+Homepage = "https://github.com/XYG-Research/GenMat"
+Repository = "https://github.com/XYG-Research/GenMat"
+Issues = "https://github.com/XYG-Research/GenMat/issues"
+
 [project.scripts]
+genmat = "genmat.cli:main"
+genmat-api = "genmat.server:main"
 genim = "genim.cli:main"
+genim-api = "genim.server:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+genim = ["data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-config --strict-markers"

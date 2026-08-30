@@ -1,237 +1,462 @@
-# GenIM: Generative Intermetallic Crystal Structures (MVP)
+# GenMat: generative materials discovery
 
 **English** | [简体中文](README.zh-CN.md)
 
-GenIM trains a generative structure builder on Materials Project (MP) data to quickly produce physically plausible intermetallic crystal structures.
+GenMat is a Python package and command-line toolkit for building, generating,
+validating, ranking, benchmarking, and screening periodic crystal structures.
+Version 0.6 establishes the canonical `genmat` distribution and import
+namespace, a versioned model catalog, and model-aware Python, CLI, HTTP, and
+Studio integration. Version 0.5 added controlled, composition-preserving population mutation and
+exact Hall-token space-group conditioning. Version 0.4 added evidence-aware
+Matra/Alexandria observables, chemistry-aware
+seed geometry, and deterministic scientific triage. Version 0.3 added auditable
+multi-model proposal backends. Version 0.2 made the chemistry
+domain explicit and general-purpose: oxides, nitrides,
+halides, carbides, semiconductors, elemental solids, and intermetallics can use
+the same Hall/Wyckoff generation pipeline.
 
-This repository is a **runnable MVP** that follows the core ideas of two related works (symmetry/Wyckoff representation + autoregressive Transformer sampling + post-generation filtering; see [References](#references)), packaged as a reusable Python library and CLI.
+The canonical distribution and import namespace are now `genmat`, the primary
+class is `GenMat`, and the commands are `genmat` and `genmat-api`. The historical
+`genim` namespace, `GenIM` class, `GenIMBackend`, and `genim`/`genim-api` commands
+remain thin compatibility interfaces so published workflows and checkpoints stay
+reproducible.
 
-## Features
+When upgrading an environment that installed the old `genim` distribution,
+remove it before installing `genmat`; installing both distributions would make
+them co-own the same compatibility package files:
 
-- Pull structures from the MP API (requires `MP_API_KEY`).
-- Standardize structures with `spglib` and extract a **Hall number / Wyckoff site** representation.
-- Encode each structure into a token sequence and train a **Causal Transformer LM** for autoregressive generation.
-- Decode generated sequences back into 3D periodic structures (ASE `Atoms`) and run fast acceptance filtering (minimum interatomic distance, duplicates/clashes, recognizable symmetry, etc.).
-- Generation enables **physically motivated geometric constraints** by default: connectivity checks + volume/bond-length autoscaling (avoids fragmented clusters / over-sparse lattices).
+```bash
+python -m pip uninstall genim
+python -m pip install --upgrade genmat
+```
 
-## Requirements
+The representation combines space-group symmetry, Wyckoff sites, discretized
+lattice/coordinate tokens, and a causal Transformer. Generated candidates are
+decoded to ASE `Atoms`, checked geometrically and crystallographically, deduplicated,
+and optionally relaxed/scored with an ML interatomic potential.
 
-- Python 3.9+
-- Core: `torch`, `ase`, `spglib`, `requests`, `numpy`, `pyyaml`, `tqdm`, `matplotlib`, `Pillow`
-- Optional extras: `genim[mlip]` (fairchem-core for MLIP relaxation), `genim[hull]` (pymatgen + scipy for energy-above-hull and surface screening), `genim[all]` for everything.
+## What changed in 0.6
 
-Install (editable):
+- `GenMat` and `GenMatBackend` now own the implementation; `GenIM` and
+  `GenIMBackend` are compatibility subclasses rather than the primary classes.
+- The published package is `genmat` and contains both `genmat` and legacy
+  `genim` imports, with matching canonical and compatibility command entry points.
+- `ModelRegistry` provides versioned model IDs, aliases, provenance, capability
+  declarations, license gates, offline mode, content-addressed caching, and
+  SHA256/size verification where an immutable checksum is published.
+- `genmat models list|info|pull`, `GET /v1/models`, and the `model` generation
+  request field make GenMat, Matra, Alexandria, and OMat24 assets discoverable
+  without hard-coded paths. See [Model access](docs/MODELS.md).
+- `GENMAT_*` is the canonical environment-variable family. Existing `GENIM_*`
+  variables remain supported at lower precedence.
+
+## What changed in 0.5
+
+- `n` is the requested final population size. `mutation_fraction` divides it
+  into independently generated direct parents and validated mutants, while
+  always retaining at least one direct model result.
+- Mutants preserve the complete composition and parent lineage. Exact
+  space-group requests use symmetry-conservative cell mutation plus projected
+  Wyckoff-orbit motion and compatible whole-orbit swaps; every local mutant is
+  independently rechecked with spglib and rejected on mismatch.
+- Geometry-dependent parent observables, including remote relaxation energy,
+  are deliberately removed from mutants. Relax and rescore mutants before
+  comparing their energies.
+- `SamplingConfig.fixed_spacegroup` resolves the requested group to a Hall
+  setting and forces that Hall token in the autoregressive sequence. Vocabulary
+  coverage enables conditioning but does not prove that the checkpoint learned
+  that structural family well.
+- The historical GenIM checkpoint generator was not a simple random generator:
+  it learned Hall/Wyckoff/lattice/site token sequences. The former Studio edge
+  fallback was a separate algorithmic geometry seed and did not represent a
+  learned model over all 230 space groups; it is now explicit-only.
+
+## What changed in 0.4
+
+- Matra `EHULL`/`EHULL_DISC` sequence blocks are preserved as auditable
+  conditioning targets or model emissions, never silently promoted to computed
+  thermodynamic evidence.
+- `AlexandriaMatraBackend` integrates the public Matra generation/relaxation
+  endpoint and preserves its reported energy as `relaxed_energy_per_atom` with
+  source and evidence metadata. It is not relabelled as DFT, formation energy,
+  or energy above hull because the public response does not expose that basis.
+- `ScientificObservable` distinguishes conditioning targets, model emissions,
+  postprocessed estimates, and independently calculated values. Optional
+  `ScientificEvaluator` stages can add MLIP, hull, DFT, phonon, or other evidence.
+- The non-ML fallback now constructs cells and sites from covalent radii,
+  packing bounds, periodic minimum-image distances, and farthest-point sampling.
+- Every selected candidate receives a transparent schema-v3 triage rank based
+  on software validity, geometry, constraint evidence, backend consistency, and
+  observable evidence. Rank is not a stability or synthesizability claim.
+
+## What changed in 0.3
+
+- `GenerationBackend`, `GenerationConstraints`, `GeneratedCandidate`, and
+  `EnsembleGenerator` define a model-neutral generation and provenance contract.
+  The original 0.3 names remain compatibility aliases.
+- `GenMatBackend` and the optional `MatraBackend` run through the same ASE
+  conversion, validation, condition audit, and cross-model deduplication path.
+- `AlgorithmicSeedBackend` and `GeneratorService` provide a reproducible,
+  composition-exact default when no compatible checkpoint is configured,
+  without presenting the result as a learned-model prediction.
+- The optional HTTP API exposes `/v1/health`, `/v1/capabilities`, and
+  `/v1/generate` with the same candidate records used by Python.
+- Matra checkpoints are loaded with PyTorch weights-only mode, SHA256
+  verification, schema checks, and exact reconstructed-model weight matching.
+- `genmat generate-ensemble` produces selected CIFs, a complete `candidates.jsonl`
+  audit trail, and a source-aware `ensemble-report.json`.
+- Matra conditioning supports stability, exact elements, stoichiometry, space
+  group, checkpoint-specific Wyckoff indices, and continuous hull targets.
+  Unsupported or scientifically unevaluated constraints remain explicit in
+  every candidate record.
+
+## What changed in 0.2
+
+- `ChemistryPolicy(mode="any")` is now the default. `metallic` and
+  `intermetallic` are explicit compatibility modes.
+- Vocabulary seeding covers all 118 elements in `any` mode and supports exact
+  allow/deny lists.
+- `GenMat.from_checkpoint(...)` provides a stable Python API with batched
+  grammar-constrained sampling.
+- New checkpoints have a versioned schema, SHA256 verification, training/data
+  provenance, and strict weight/config compatibility checks. Legacy v1
+  checkpoints remain loadable.
+- New models default to `periodic8` element descriptors: atomic number,
+  covalent radius, mass, period, group, and broad chemical-class indicators.
+  Legacy feature checkpoints retain their original four-dimensional projection.
+- `ValidationReport` exposes decision metrics, while `genmat benchmark` reports
+  validity, uniqueness, formula/element coverage, and space-group coverage.
+- CI and a tracked regression suite cover chemistry policies, legacy checkpoint
+  loading, batch sampling, generation provenance, and the existing workflows.
+
+## Scientific scope
+
+GenMat proposes symmetry-consistent candidates; it does **not** prove that a
+candidate is synthesizable, dynamically stable, or the thermodynamic ground
+state. Use the stages according to the question:
+
+1. grammar/decode checks establish structural well-formedness;
+2. geometric and symmetry validation rejects obvious failures;
+3. deduplication measures novelty within the generated set;
+4. MLIP relaxation and energy-above-hull provide a model-dependent screen;
+5. DFT, phonons, finite-temperature analysis, and experimental judgment remain
+   necessary for strong scientific claims.
+
+An old checkpoint trained only on intermetallic data does not become a reliable
+oxide generator merely because `chemistry_mode` is changed to `any`. General
+chemistry requires a representative training corpus and a newly trained
+checkpoint. See [Scientific scope](docs/SCIENTIFIC_SCOPE.md).
+
+## Installation
+
+Python 3.9 or newer is required.
 
 ```bash
 python -m pip install -e .
-# full features:
-python -m pip install -e ".[all]"
+python -m pip install -e ".[test]"       # tests
+python -m pip install -e ".[api]"        # FastAPI service
+python -m pip install -e ".[hull]"       # hull and surface workflows
+python -m pip install -e ".[all]"        # MLIP + hull extras
 ```
 
-## Configuration (conf.yml)
-
-All tunable parameters live in `conf.yml` (a default config is provided at the repo root). You can also regenerate a template:
+Matra is optional and has a separate non-commercial research license. Install
+it explicitly from an approved source; GenMat does not vendor Matra code or
+weights:
 
 ```bash
-genim conf-init --out conf.yml
+python -m pip install -e ".[matra]"
+python -m pip install -e ../matra-genoa-preview
 ```
 
-Common groups:
+## Chemistry policies
 
-- Dataset download: `mp_download.*`
-- Preprocessing: `preprocess.*` (`seed_all_elements` / `seed_all_hall` improve cross-element/symmetry generalization)
-- Training: `train.*` (`element_emb: features` uses periodic-table features for element embedding/prediction)
-- Generation: `generate.*` (`n_max`, deduplication, space-group sampling, ...)
-- Geometric enhancement: `generate.autoscale_cell`, `generate.prototype_mode`, `validate.max_dist_factor`, `validate.require_connected`
+| Mode | Accepted domain | Default minimum species |
+|---|---|---:|
+| `any` | Every real chemical element | 1 |
+| `metallic` | Metals and optional metalloids | 1 |
+| `intermetallic` | Legacy metallic domain | 2 |
 
-## Quick start (offline example)
+`allowed_elements` and `excluded_elements` narrow these domains exactly.
+GenMat deliberately avoids an `inorganic` heuristic because that label cannot be
+inferred unambiguously from an element set alone.
 
-Run the full pipeline on a few built-in example structures (no MP key needed):
+Example configuration:
+
+```yaml
+mp_download:
+  chemistry_filter: any
+
+preprocess:
+  chemistry_mode: any
+  seed_all_elements: true
+  seed_all_hall: true
+
+generate:
+  chemistry_mode: any
+  allowed_elements: [Na, Cl, K, Br]
+  excluded_elements: null
+  random_pool: chemistry
+```
+
+To reproduce historical behaviour:
+
+```yaml
+generate:
+  chemistry_mode: intermetallic
+  include_metalloids: true
+  random_pool: intermetallic
+```
+
+## Offline smoke pipeline
+
+The built-in examples include intermetallic, ionic, covalent, and semiconductor
+structures.
 
 ```bash
-genim examples-make --out data/examples.jsonl
-genim preprocess --in data/examples.jsonl --out data/examples.tokens.pt
-genim train --data data/examples.tokens.pt --out checkpoints/example.pt --steps 200
-genim generate --ckpt checkpoints/example.pt --n 10 --out-dir output/cif
-genim validate --cif-dir output/cif
+genmat examples-make --out data/examples.jsonl
+genmat preprocess --in data/examples.jsonl --out data/examples.tokens.pt \
+  --seed-all-elements --seed-all-hall --chemistry any
+genmat train --data data/examples.tokens.pt --out checkpoints/example.pt \
+  --steps 200 --element-emb features --element-feature-set periodic8
+genmat generate --ckpt checkpoints/example.pt --n 10 --out-dir output/cif \
+  --chemistry any --nelements-min 1
+genmat validate --cif-dir output/cif
+genmat benchmark --cif-dir output/cif --out output/cif/benchmark.json
 ```
 
-## Minimal generation: elements + element count
+## Materials Project training data
 
-Specify only the required elements and the total number of element species; everything else comes from `conf.yml`:
+Set `MP_API_KEY` (or `PMG_MAPI_KEY`), or place the key in the gitignored
+`.mp_api_key` file.
 
 ```bash
-genim synth --elements Fe Si --nelements 2
-genim synth --elements Fe Si --nelements 3
+genmat mp-download --chemistry any --max-atoms 100 --eah-max 0.5 \
+  --nelements-min 1 --nelements-max 5 --limit 50000 --out data/mp.jsonl
+genmat preprocess --in data/mp.jsonl --out data/mp.tokens.pt \
+  --seed-all-elements --seed-all-hall --chemistry any
+genmat inspect --in data/mp.jsonl --wyckoff
+genmat inspect --in data/mp.tokens.pt
+genmat train --data data/mp.tokens.pt --out checkpoints/mp_general.pt \
+  --steps 20000 --val-fraction 0.1 \
+  --element-emb features --element-feature-set periodic8
 ```
 
-- `--nelements 2`: binary structures containing only Fe/Si.
-- `--nelements 3`: ternary structures containing Fe/Si, with the third element drawn from the intermetallic element pool.
-- `generate.n_max` is the maximum count; if there are not enough unique structures, it outputs as many unique ones as possible (no error).
-- Strict deduplication is on by default (`generate.dedup.*`).
-- Default `generate.prototype_mode: target` samples directly in the target element system (more reasonable lattice/bond lengths); set to `random` for more prototype diversity.
-- Default `generate.hall_mode: model` (quality first); set to `uniform_230` to cover all 230 space groups.
+Dataset balance matters. Report composition families, element frequency,
+space-group coverage, cell-size distribution, train/validation/test split
+policy, and any Materials Project filters together with model results. The
+built-in seeded random validation split is a reproducible software baseline;
+use composition- and prototype-held-out external splits for extrapolation claims.
 
-### Composition ratios
+## Default generation service
 
-`--ratios` is always written in `--elements` order:
+The service has working defaults and accepts arbitrary valid compositions. It
+uses a configured local checkpoint first, can use the public Matra/Alexandria
+generation-and-relaxation service when explicitly enabled, and otherwise
+returns an explicitly labelled algorithmic starting geometry:
 
 ```bash
-# 1) nelements == len(elements): atom-count ratio
-genim synth --elements Ni Fe Co Al --nelements 4 --ratios 1 1 1 1
-# Ni:Fe:Co:Al = 1:1:1:1
-
-# 2) some listed elements only required to appear, composition free: use X
-genim synth --elements Ni Fe Co Al --nelements 4 --ratios 1 1 X X --ratio-mode ratio
-# Ni:Fe strictly 1:1; Co and Al must appear but with free fractions
-
-# 3) percent: numeric slots are total-atom percentages, X is free
-genim synth --elements Ni Fe Co Al --nelements 4 --ratios 25 25 X X --ratio-mode percent
-# Ni 25 at.%, Fe 25 at.%; Co and Al share the remaining 50 at.%
-
-# 4) nelements > len(elements), extra elements free
-genim synth --elements Fe Si --nelements 3 --ratios 30 30 --ratio-mode percent
-# Fe 30 at.%, Si 30 at.%; the 3rd element gets the remaining 40 at.%
-
-# 5) no composition constraint
-genim synth --elements Fe Si --nelements 3
+genmat serve --host 127.0.0.1 --port 8000
 ```
-
-- The number of `--ratios` must equal the number of `--elements`.
-- `X` means "this element must appear, but its fraction is not fixed".
-- `--ratio-mode ratio`: constrain only the relative atom counts of numeric slots.
-- `--ratio-mode percent`: numeric slots are total-atom percentages; all `X` slots and extra elements share the remainder.
-- Default interpretation is `ratio`; numeric slots are treated as percentages only when you pass `--ratio-mode percent`.
-
-## Dataset coverage check (recommended)
-
-For more general intermetallic generation, inspect training-set coverage first (elements, Hall numbers, number of Wyckoff representative sites, ...):
 
 ```bash
-genim inspect --in data/mp_train.jsonl
-genim inspect --in data/mp_train.jsonl --wyckoff
-genim inspect --in data/mp_train.tokens.pt
+curl -X POST http://127.0.0.1:8000/v1/generate \
+  -H "Content-Type: application/json" \
+  -d '{"formula":"LiFePO4","spacegroup_number":62,"n":4,"seed":7}'
 ```
 
-## Using Materials Project as the training set
+Use `GENMAT_MATRA_CHECKPOINT`, `GENMAT_MATRA_SHA256`,
+`GENMAT_MODEL_CHECKPOINT`, and `GENMAT_MODEL_SHA256` to configure checkpoint
+backends. Set `GENMAT_ENABLE_ALEXANDRIA=1` to opt into the public remote backend.
+The same `GENIM_*` names remain lower-priority compatibility aliases.
+In a source checkout, the service can discover the verified sibling
+`matra-v02-med.ckpt`. `backend="auto"` prefers local checkpoints, then the
+enabled remote service, then the geometry seed; explicit unavailable checkpoint
+requests fail instead of silently falling back.
+See [Public generation API](docs/PUBLIC_API.md).
 
-1) Set the API key:
+## Model access
 
 ```bash
-export MP_API_KEY="your-mp-key"   # or PMG_MAPI_KEY
+genmat models list
+genmat models info matra/genoa-mpas-med@0.2
+genmat models pull matra/genoa-mpas-med@0.2 --accept-license
+genmat generate-ensemble --model matra/genoa-mpas-med@0.2 \
+  --accept-model-license --elements Na Cl --stoichiometry 1 1 \
+  --n-per-backend 8 --out-dir output/matra-nacl
 ```
 
-To avoid leaving the key in your shell history, write it into a local `.mp_api_key` file (one key per line); the tool reads it automatically. This file is gitignored.
+Python callers use the same catalog and cache:
 
-2) Download (example: restrict element set + structure size):
+```python
+from genmat import ModelRegistry
+
+models = ModelRegistry.default()
+spec = models.info("matra-v02-med")
+backend = models.load_backend(spec, accept_license=True, device="auto")
+```
+
+Catalog metadata does not claim that a model is scientifically suitable for an
+arbitrary chemistry. Inspect its training-domain evidence and model card before
+interpreting results. See [Model access and provenance](docs/MODELS.md).
+
+## Python API
+
+```python
+from genmat import ChemistryPolicy, GenMat, SamplingConfig
+
+model = GenMat.from_checkpoint(
+    "checkpoints/mp_general.pt",
+    device="auto",
+    # expected_sha256="..."  # recommended for published artifacts
+)
+
+results = model.sample(
+    config=SamplingConfig(
+        n=64,
+        batch_size=16,
+        max_sites=25,
+        min_sites=2,
+        temperature=0.9,
+        seed=7,
+    ),
+    chemistry=ChemistryPolicy(
+        mode="any",
+        allowed_elements=["Na", "Cl", "K", "Br"],
+        min_elements=2,
+        max_elements=2,
+    ),
+)
+
+paths = model.write_valid_cifs(results, "output/alkali_halides")
+records = [result.to_record() for result in results]  # includes provenance
+```
+
+The current batch sampler performs one model forward pass per token position for
+all active rows. KV-cache decoding is a future performance optimization; the
+public result/provenance contract does not depend on it.
+
+## Ensemble GenMat + Matra generation
+
+The hybrid interface treats models as independent proposal sources. It does not
+average or concatenate incompatible state dictionaries.
 
 ```bash
-genim mp-download --elements Fe Ni Al --max-atoms 80 --limit 5000 --out data/mp.jsonl
+genmat matra-checkpoint-info \
+  --ckpt ../matra-genoa-preview/checkpoints/matra-v02-med.ckpt \
+  --expected-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa
+
+genmat generate-ensemble \
+  --genmat-ckpt checkpoints/mp_general.pt \
+  --matra-ckpt ../matra-genoa-preview/checkpoints/matra-v02-med.ckpt \
+  --matra-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa \
+  --elements Na Cl --stoichiometry 1 1 --stability stable \
+  --n-per-backend 64 --seed 7 --out-dir output/hybrid-nacl
 ```
 
-3) Preprocess / train / generate as above.
+Equivalent Python API:
 
-### Intermetallic constraints at generation time
+```python
+from genmat import (
+    EnsembleGenerator, GenerationConstraints, GenerationSettings, GenMatBackend,
+    MatraBackend, write_ensemble_run,
+)
 
-`genim generate` applies two post-generation filters by default:
+backends = [
+    GenMatBackend.from_checkpoint("checkpoints/mp_general.pt"),
+    MatraBackend.from_checkpoint(
+        "../matra-genoa-preview/checkpoints/matra-v02-med.ckpt",
+        expected_sha256="4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa",
+    ),
+]
+run = EnsembleGenerator(backends).run(
+    condition=GenerationConstraints(
+        elements=("Na", "Cl"), stoichiometry=(1, 1), stability="stable",
+    ),
+    config=GenerationSettings(n=64, temperature=0.75, seed=7),
+)
+write_ensemble_run(run, "output/hybrid-nacl")
+```
 
-- Fast geometric/symmetry acceptance (minimum interatomic distance, recognizable space group, ...).
-- **Intermetallic filter**: requires **at least 2 elements** and excludes common non-metals/halogens (use `--include-metalloids` to allow metalloids).
+`selected` means structurally valid, constraint-not-disproved, and unique in the
+run. It is not a claim of thermodynamic stability. Each requested constraint is
+reported as `satisfied`, `violated`, or `not_evaluated` with its method and
+evidence level. Unevaluated stability/hull targets require MLIP/DFT evidence. See
+[Matra integration](docs/MATRA_INTEGRATION.md).
 
-Strict deduplication is on by default, and `--n` is interpreted as "max number of **unique** structures". If constraints are too strict to reach `--n`, the program outputs as many unique structures as possible and reports rejection-reason statistics (no exception).
+## Composition-constrained synthesis
 
-To better match a binary/ternary intermetallic distribution:
+`genmat synth` reads `conf.yml` and supports exact ratio or atomic-percentage
+constraints:
 
 ```bash
-genim generate --ckpt checkpoints/mp_train.pt --n 200 --out-dir output/mp_cif --nelements-max 3
+genmat synth --elements Na Cl --nelements 2 --ratios 1 1
+genmat synth --elements Fe O --nelements 2 --ratios 2 3
+genmat synth --elements Li Fe P O --nelements 4 \
+  --ratios 1 1 1 4 --ratio-mode ratio
 ```
 
-### "Prototype generation → element substitution" (more general)
-
-To generate element systems that are rare/absent in the training set (e.g. metalloids such as Si/Ge), a more robust approach is:
-
-1) let the model generate **structural prototypes** (space group / Wyckoff / coordinates);
-2) use `--substitute-elements` to replace the element set of the generated structures (keeping the prototype).
-
-Example (generate Fe–Si binary prototypes and substitute FeSi):
+`X` keeps an element mandatory while leaving its fraction unconstrained:
 
 ```bash
-genim generate --ckpt checkpoints/mp_train_fullsg_60.pt --n 20 --out-dir output/demo_FeSi --nelements-min 2 --nelements-max 2 --include-metalloids --substitute-elements Fe Si
+genmat synth --elements Li Fe P O --nelements 4 \
+  --ratios 1 X 1 X --ratio-mode ratio
 ```
 
-## Notes (MVP trade-offs)
+## Checkpoints and reproducibility
 
-To get the end-to-end pipeline running first, this version discretizes continuous variables (lattice parameters and Wyckoff coordinates) into **binned tokens**. For stronger performance closer to the reference papers, the coordinates/lattice can be modeled with continuous density (Gaussian embedding + mixture density head, etc.).
+Large datasets and weights remain outside Git. Publish them as immutable release
+assets and record SHA256 values. Format-v2 checkpoints contain:
 
-For maximum generality / broader intermetallic coverage:
+- `format_version`;
+- strict `model_config`, vocabulary, tokenizer config, and weights;
+- GenMat version (legacy files may use the `genim_version` key), creation time,
+  seed, and training steps;
+- source token-dataset SHA256 and source-dataset provenance;
+- dataset and symmetry statistics.
 
-- `mp-download`: increase `--limit`, relax `--nelements-max/--max-atoms/--eah-max`, add `--include-metalloids` as needed.
-- `preprocess`: increase `--max-sites` as needed (longer sequences, higher training cost); add `--seed-all-elements/--seed-all-hall` for better cross-element/symmetry generalization.
-- `train`: use `--element-emb features` to enable periodic-table feature-based element embedding/prediction.
-
-## MLIP relaxation + Energy Above Hull scoring
-
-`genim score` (alias `genim mlip`) relaxes generated structures (cell + atoms) with **eSEN/OMAT24 (fairchem-core)**, automatically builds an ML reference set for the same chemical system (MP structures + the same MLIP energies), computes `Energy Above Hull (eV/atom)` per structure, and writes a CSV. The CSV also reports `composition_ratio`, `composition_percent`, and `composition_counts`.
+Use `genmat.checkpoints.download_checkpoint(...)` for atomic downloads with
+optional checksum enforcement. Details are in
+[Checkpoint format](docs/CHECKPOINT_FORMAT.md).
 
 ```bash
-genim synth --elements Fe Si --nelements 2
-genim score --conf conf.yml --cif-dir output/Fe-Si_2el
-
-# or the two-step aliases:
-genim gen --elements Fe Si --nelements 2
-genim mlip --conf conf.yml --cif-dir output/Fe-Si_2el
+genmat checkpoint-info --ckpt checkpoints/mp_train_fullsg_60.pt \
+  --expected-sha256 3777449fe396522c0173aaa699c70c99b4d28e26b436200545f08f86ff28173c
 ```
 
-> Requires the optional extras: `pip install ".[all]"` (fairchem-core + pymatgen + scipy).
+The historical intermetallic checkpoint remains available from
+[GitHub Releases](https://github.com/XYG-Research/GenMat/releases), but its
+training domain must be reported when it is used. Its verified filenames, sizes,
+URLs, and hashes are recorded in
+[the v0.1.0 resource manifest](resources/release-v0.1.0.json).
 
-## Interactive mode
-
-Run `genim` with no subcommand to enter an interactive menu. Press Enter to accept defaults (loaded from `conf.yml`).
+## Optional scientific screening
 
 ```bash
-genim
+genmat score --conf conf.yml --cif-dir output/cif
+genmat surface-screen --input-dir output/cif --out-dir output/surfaces
 ```
 
-The menu prints which paths it reads/writes, runs one selected module, then exits. For composition control in interactive mode, write one line as `R/P + values`, e.g. `R 1 1 X X` or `P 20 20 20 20`.
+`score` uses the configured MLIP and a consistent reference pool to estimate
+energy above hull. These values inherit model/reference uncertainty and should
+not be mixed with DFT values as though they shared one energy scale.
 
-## Structure snapshot panel
-
-`genim snapshot-panel` samples a fixed number of structures from a generated CIF directory into a snapshot panel. Sampling is random by default, supports filtering by ID range, 6 per row, with labels like `009-Fe5Co5Ni5Al5` (the number is the actual atom count in the cell). Each tile is rendered in a perspective crystal view with atoms and unit-cell lattice lines visible at the same time.
+## Development
 
 ```bash
-genim snapshot-panel --cif-dir output/Fe-Co-Ni-Al_4el --n 12
-genim snapshot-panel --cif-dir output/Fe-Co-Ni-Al_4el --n 12 --id-start 9 --id-end 40
+python -m pytest -q
 ```
 
-Configuration lives in `conf.yml`:
-
-- `ml.*`: choose the eSEN model/device; point `ml.checkpoint` at a local `esen_30m_oam.pt` to avoid HF download/gating.
-- `relax.*`: bulk relaxation settings (ASE + ExpCellFilter/UnitCellFilter).
-- `hull.*`: MP reference pool + reference relaxation; `stable_threshold_eV_per_atom: 0.2` is the 200 meV/atom stability threshold.
-
-## Pretrained weights & data download
-
-To keep the repository lightweight, the training data (`data/`) and pretrained weights (`checkpoints/`) are **not committed with the source**; they are distributed as [GitHub Releases](https://github.com/XYG-Research/GenIM/releases) assets:
-
-- `mp_train_fullsg_60.pt`: Causal Transformer weights trained on the full 230-space-group coverage + intermetallic merged set.
-- `mp_train.jsonl` / `mp_train.tokens.pt`: MP-derived training structures and their tokenized dataset (sourced from Materials Project, subject to its terms of use).
-
-Download and place them back into the corresponding directories (default paths in `conf.yml` under `paths.*`):
-
-```bash
-mkdir -p checkpoints
-mv mp_train_fullsg_60.pt checkpoints/
-```
-
-You can also **reproduce from scratch**: use `genim mp-download` (with your own `MP_API_KEY`), then `preprocess` → `train`. See [`ACCEPTANCE.md`](ACCEPTANCE.md).
+Architecture and compatibility boundaries are documented in
+[Architecture](docs/ARCHITECTURE.md). Multi-model scientific and licensing
+boundaries are documented in [Matra integration](docs/MATRA_INTEGRATION.md).
 
 ## References
 
-This project's methodology is inspired by the following works (both in *npj Computational Materials*):
+The representation and workflow are inspired by:
 
-1. DOI: [10.1038/s41524-025-01881-2](https://doi.org/10.1038/s41524-025-01881-2)
-2. DOI: [10.1038/s41524-025-01940-8](https://doi.org/10.1038/s41524-025-01940-8)
+1. [doi:10.1038/s41524-025-01881-2](https://doi.org/10.1038/s41524-025-01881-2)
+2. [doi:10.1038/s41524-025-01940-8](https://doi.org/10.1038/s41524-025-01940-8)
 
 ## License
 
-Released under the [BSD 3-Clause License](LICENSE).
+[BSD 3-Clause](LICENSE)

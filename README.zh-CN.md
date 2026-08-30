@@ -1,249 +1,379 @@
-# GenIM：基于 Materials Project 的 intermetallic 结构生成（MVP）
+# GenMat：通用生成式材料发现
 
 [English](README.md) | **简体中文**
 
-用 Materials Project (MP) 的结构数据做训练集，训练一个"生成式结构构建模型"，快速产生合理的 intermetallic 晶体结构。
+GenMat 是一个用于晶体结构构建、生成、验证、基准评测与筛选的 Python
+软件包和命令行工具。0.6 版本完成了 `genmat` 正式包与导入命名空间、
+统一模型目录以及 Python/命令行/HTTP/Studio 模型接入；0.4 版本新增了带证据语义的 Matra/Alexandria 能量、
+化学感知的种子几何和透明科学排序；0.3 版本新增了可审计的多模型生成后端；
+0.2 版本不再把
+化学体系硬编码为金属间化合物：
+氧化物、氮化物、卤化物、碳化物、半导体、元素固体和金属间化合物可以
+共用 Hall/Wyckoff—Transformer 流程。
 
-本仓库实现一个 **可落地跑通的 MVP**：参考两篇相关工作的核心思想（Wyckoff/对称性表征 + 自回归 Transformer 顺序采样 + 生成后过滤验收，详见文末 [参考文献](#参考文献)），做成可复用的 Python 包与命令行工具。
+正式安装包与导入命名空间现为 `genmat`，主类为 `GenMat`，正式命令为
+`genmat` 与 `genmat-api`。为保证既有科研流程可复现，`genim` 命名空间、
+`GenIM` 类、`GenIMBackend` 以及 `genim`/`genim-api` 命令继续作为兼容接口。
 
-## 主要能力
+如果现有环境安装过旧的 `genim` 发布包，请先卸载旧包再安装 `genmat`；
+两者同时安装会共同占用同一组兼容模块文件：
 
-- 从 MP API 拉取结构（需要 `MP_API_KEY`）。
-- 用 `spglib` 把结构标准化并提取 **Hall number / Wyckoff site** 表征。
-- 把每个结构编码成 token 序列，训练一个 **Causal Transformer LM** 做自回归生成。
-- 把生成的序列解码回 3D 周期结构（ASE `Atoms`），并做快速验收过滤（最小原子距、重复/冲突、对称性可识别等）。
-- 生成阶段默认启用**更贴近物理的几何约束**：连通性检查 + 体积/键长自适应缩放（避免"分裂簇/过稀晶格"）。
+```bash
+python -m pip uninstall genim
+python -m pip install --upgrade genmat
+```
 
-## 环境
+模型以空间群、Wyckoff 位点、离散晶格参数和坐标为序列表示，生成结果
+解码为 ASE `Atoms`，随后进行几何/对称性检查、去重，并可选择使用 MLIP
+弛豫和 Energy Above Hull 筛选。
 
-- Python 3.9+
-- 核心依赖：`torch`, `ase`, `spglib`, `requests`, `numpy`, `pyyaml`, `tqdm`, `matplotlib`, `Pillow`
-- 可选扩展：`genim[mlip]`（fairchem-core，用于 MLIP 弛豫）、`genim[hull]`（pymatgen + scipy，用于 energy-above-hull 与表面筛选）、`genim[all]` 全功能。
+## 0.6 版的核心改进
 
-安装（开发态）：
+- `GenMat` 与 `GenMatBackend` 现在是实际实现类；`GenIM` 与
+  `GenIMBackend` 是兼容子类。
+- 发布包名正式改为 `genmat`，同时在同一发布物中保留 `genim` 兼容导入。
+- `ModelRegistry` 统一管理版本化模型 ID、别名、来源、能力声明、许可证确认、
+  离线模式、缓存以及已发布 SHA256/文件大小的完整性校验。
+- 新增 `genmat models list|info|pull`、`GET /v1/models` 和生成请求的
+  `model` 字段，后续 GenMat、Matra、Alexandria 与 OMat24 模型无需硬编码路径。
+- `GENMAT_*` 是正式环境变量；已有 `GENIM_*` 仍以较低优先级兼容。
+
+## 0.5 版的核心改进
+
+- `n` 表示最终结构种群数量；`mutation_fraction` 将其分为独立生成并弛豫的父代和组成保持的变异体，并始终保留至少一个真实模型父代。
+- 变异体保持完整化学组成与父子谱系。指定精确空间群时采用对称性保守的晶胞变异、按位点稳定子投影的 Wyckoff 轨道位移以及等多重度轨道交换，并在本地使用 spglib 重新验收。
+- 父代能量和其他依赖几何的观测量不会复制给变异体；变异结构必须重新弛豫、重新计算后才能比较能量。
+- checkpoint 生成器通过 Hall/Wyckoff、晶格和位点 token 学习结构，并非简单随机生成器。旧 Studio 的边缘回退只是独立的算法几何种子，并不表示模型学习了全部 230 个空间群；新版只允许用户显式选择该后端。
+- `SamplingConfig.fixed_spacegroup` 会把 1–230 空间群解析为对应 Hall setting，并在自回归采样时强制该 token。词表覆盖不等于训练充分，输出仍须独立验证。
+
+## 0.4 版的核心改进
+
+- Matra 序列中的 `EHULL`/`EHULL_DISC` 会保留为“条件目标”或“模型输出”，
+  不会伪装成独立计算得到的热力学证据。
+- 新增 `AlexandriaMatraBackend`，可调用公开的 Matra 生成/弛豫服务；其能量
+  以 `relaxed_energy_per_atom` 保存并标注来源。由于公开响应没有给出计算器
+  与参考零点，GenMat 不把它误称为 DFT、形成能或凸包能。
+- `ScientificObservable` 区分条件目标、模型输出、后处理估计和独立计算值；
+  `ScientificEvaluator` 可扩展 MLIP、凸包、DFT、声子等证据阶段。
+- 非机器学习后备生成器改用共价半径、堆积率、周期最小镜像距离和最远点采样，
+  显著减少过近原子与孤立原子。
+- schema v3 为候选给出可解释的科学初筛排序；排序只用于后续计算资源分配，
+  不等同于热力学稳定性或可合成性。
+
+## 0.3 版的核心改进
+
+- 新增与模型无关的 `GenerationBackend`、`GenerationConstraints`、
+  `GeneratedCandidate` 和 `EnsembleGenerator` 契约；旧名称保留为 0.3 兼容别名。
+- `GenMatBackend` 和可选 `MatraBackend` 共用 ASE 转换、结构验证、条件审计
+  和跨模型去重流程。
+- Matra checkpoint 使用 PyTorch 权重安全模式、SHA256、结构检查和重建模型
+  权重精确匹配，不调用历史的非安全便捷加载路径。
+- `genmat generate-ensemble` 同时输出通过筛选的 CIF、完整 `candidates.jsonl`
+  审计记录和按来源统计的 `ensemble-report.json`。
+- Matra 可按稳定性、精确元素集合、化学计量、空间群、checkpoint 特有
+  Wyckoff 索引和连续凸包目标生成；未支持或无法直接验证的条件会明确写入记录。
+
+## 0.2 版的核心改进
+
+- 默认采用 `ChemistryPolicy(mode="any")`；`metallic` 和
+  `intermetallic` 作为显式兼容模式保留。
+- `any` 模式的词表可以覆盖全部 118 种真实元素，并支持精确的元素白名单
+  和黑名单。
+- 新增稳定的 Python API `GenMat.from_checkpoint(...)` 和批量约束采样。
+- 新检查点采用带版本的格式，记录 SHA256、训练参数和数据来源；旧 v1
+  检查点仍可加载。
+- 新训练默认采用 `periodic8` 元素描述符：原子序数、共价半径、质量、
+  周期、族以及金属/类金属/非金属指示。旧模型仍使用原来的四维投影，
+  不破坏权重兼容性。
+- 验证返回可审计的物理/几何指标；`genmat benchmark` 报告有效率、唯一率、
+  元素覆盖和空间群覆盖。
+- 测试和 CI 覆盖通用化学策略、旧检查点兼容、批量生成与原有工作流。
+
+## 科学适用边界
+
+GenMat 给出的是满足表示和快速筛选条件的候选结构，并不自动证明结构可合成、
+动力学稳定或处于热力学基态。合理的证据层级是：
+
+1. 语法与解码检查：结构表示可构造；
+2. 几何和对称性检查：排除明显不合理候选；
+3. 去重和基准评测：衡量生成集内部新颖性与覆盖度；
+4. MLIP 弛豫与凸包：提供依赖模型和参考集的快速筛选；
+5. 强科学结论仍需 DFT、声子、有限温度分析和实验判断。
+
+尤其要注意：把旧金属间化合物检查点的 `chemistry_mode` 改为 `any`，并不会
+使它自动成为可靠的氧化物模型。通用化学必须使用有代表性的跨体系训练集重新
+训练。详见 [科学范围](docs/SCIENTIFIC_SCOPE.md)。
+
+## 安装
 
 ```powershell
 python -m pip install -e .
-# 全功能：
+python -m pip install -e ".[test]"
+python -m pip install -e ".[api]"
+python -m pip install -e ".[hull]"
 python -m pip install -e ".[all]"
 ```
 
-## 配置文件（conf.yml）
+要求 Python 3.9 或更高版本。
 
-本项目把**所有可调参数**集中到 `conf.yml`（仓库根目录已提供一份带默认值的配置）。你也可以用命令生成模板：
-
-```powershell
-genim conf-init --out conf.yml
-```
-
-常用配置项：
-
-- 训练集抓取：`mp_download.*`（默认支持未来扩展到 `nelements_max: 5`）
-- 预处理：`preprocess.*`（可用 `seed_all_elements/seed_all_hall` 提升跨元素/对称性泛化）
-- 训练：`train.*`（默认 `element_emb: features` 用周期表特征做元素嵌入/预测）
-- 生成：`generate.*`（`n_max`、去重、空间群采样等）
-- 生成几何增强：`generate.autoscale_cell`、`generate.prototype_mode`、`validate.max_dist_factor`、`validate.require_connected`
-
-## 快速开始（离线示例）
-
-先用内置的少量示例结构跑通端到端（不需要 MP key）：
+Matra 是可选后端，并采用独立的非商业科研许可证。GenMat 不捆绑 Matra
+代码或权重，应从获准来源单独安装：
 
 ```powershell
-genim examples-make --out data/examples.jsonl
-genim preprocess --in data/examples.jsonl --out data/examples.tokens.pt
-genim train --data data/examples.tokens.pt --out checkpoints/example.pt --steps 200
-genim generate --ckpt checkpoints/example.pt --n 10 --out-dir output/cif
-genim validate --cif-dir output/cif
+python -m pip install -e ".[matra]"
+python -m pip install -e ..\matra-genoa-preview
 ```
 
-## 最简生成：只指定元素 + 元素数
+## 化学策略
 
-用户只需要指定"必须包含的元素"以及"总元素种类数"，其余全部从 `conf.yml` 读取：
+| 模式 | 元素范围 | 默认最少元素种类 |
+|---|---|---:|
+| `any` | 全部真实化学元素 | 1 |
+| `metallic` | 金属和可选类金属 | 1 |
+| `intermetallic` | 旧版金属间化合物范围 | 2 |
+
+还可以用 `allowed_elements` 和 `excluded_elements` 精确限制元素。GenMat 没有
+采用含糊的 `inorganic` 自动分类，因为仅从元素集合不能无歧义地判断“无机”。
+
+```yaml
+mp_download:
+  chemistry_filter: any
+
+preprocess:
+  chemistry_mode: any
+  seed_all_elements: true
+  seed_all_hall: true
+
+generate:
+  chemistry_mode: any
+  allowed_elements: [Na, Cl, K, Br]
+  excluded_elements: null
+  random_pool: chemistry
+```
+
+恢复旧版行为：
+
+```yaml
+generate:
+  chemistry_mode: intermetallic
+  include_metalloids: true
+  random_pool: intermetallic
+```
+
+## 离线端到端示例
+
+内置示例同时包含金属间、离子、共价和半导体结构：
 
 ```powershell
-genim synth --elements Fe Si --nelements 2
-genim synth --elements Fe Si --nelements 3
+genmat examples-make --out data/examples.jsonl
+genmat preprocess --in data/examples.jsonl --out data/examples.tokens.pt `
+  --seed-all-elements --seed-all-hall --chemistry any
+genmat train --data data/examples.tokens.pt --out checkpoints/example.pt `
+  --steps 200 --element-emb features --element-feature-set periodic8
+genmat generate --ckpt checkpoints/example.pt --n 10 --out-dir output/cif `
+  --chemistry any --nelements-min 1
+genmat validate --cif-dir output/cif
+genmat benchmark --cif-dir output/cif --out output/cif/benchmark.json
 ```
 
-- `--nelements 2`：只生成只含 Fe/Si 的二元结构
-- `--nelements 3`：生成包含 Fe/Si 的三元结构，第三个元素从 intermetallic 元素池随机补齐
-- `generate.n_max` 是最大生成数；若唯一结构不足，会自动输出能生成的最大唯一数（不报错）
-- 默认开启严格去重：`generate.dedup.*`
-- 默认 `generate.prototype_mode: target`：直接在目标元素体系中采样（晶格/键长更合理）；需要更"原型多样性"可改成 `random`
-- 默认 `generate.hall_mode: model`（质量优先）；如需覆盖 230 空间群采样，改为 `uniform_230`
+## 使用 Materials Project 训练通用模型
 
-### 组成比例的写法
-
-`--ratios` 始终按 `--elements` 的顺序书写，常见写法如下：
+设置 `MP_API_KEY`/`PMG_MAPI_KEY`，或把密钥写入已被 Git 忽略的
+`.mp_api_key`：
 
 ```powershell
-# 1) nelements == len(elements)：写"原子数比例"
-genim synth --elements Ni Fe Co Al --nelements 4 --ratios 1 1 1 1
-# 表示 Ni:Fe:Co:Al = 1:1:1:1
-
-# 2) 有些已列元素只要求出现，不固定组成：用 X
-genim synth --elements Ni Fe Co Al --nelements 4 --ratios 1 1 X X --ratio-mode ratio
-# 表示 Ni:Fe 严格 1:1；Co 和 Al 必须出现，但占比不固定
-
-# 3) 百分比写法：数值位是 total-atom 百分比，X 表示其余元素不固定
-genim synth --elements Ni Fe Co Al --nelements 4 --ratios 25 25 X X --ratio-mode percent
-# 表示 Ni 占 25 at.%、Fe 占 25 at.%；Co 和 Al 合计占剩余 50 at.%
-
-# 4) nelements > len(elements)，并且想让额外元素也不固定
-genim synth --elements Fe Si --nelements 3 --ratios 30 30 --ratio-mode percent
-# 表示 Fe 占 30 at.%、Si 占 30 at.%；剩余第 3 个元素合计 40 at.%
-
-# 5) 不限制组成比例
-genim synth --elements Fe Si --nelements 3
+genmat mp-download --chemistry any --max-atoms 100 --eah-max 0.5 `
+  --nelements-min 1 --nelements-max 5 --limit 50000 --out data/mp.jsonl
+genmat preprocess --in data/mp.jsonl --out data/mp.tokens.pt `
+  --seed-all-elements --seed-all-hall --chemistry any
+genmat inspect --in data/mp.jsonl --wyckoff
+genmat inspect --in data/mp.tokens.pt
+genmat train --data data/mp.tokens.pt --out checkpoints/mp_general.pt `
+  --steps 20000 --val-fraction 0.1 `
+  --element-emb features --element-feature-set periodic8
 ```
 
-- `--ratios` 的个数必须与 `--elements` 个数一致。
-- `X` 表示"该元素必须出现，但组成不固定"。
-- `--ratio-mode ratio`：只对数值位施加严格原子数比例约束。
-- `--ratio-mode percent`：只对数值位施加 total-atom 百分比约束；所有 `X` 位和额外补齐元素共同分配剩余百分比。
-- 默认按 `ratio` 解释；只有你明确写 `--ratio-mode percent` 时，数值位才按百分比解释。
-- 建议只在"数值位就是 at.%"时写 `--ratio-mode percent`。
+发布模型时应同时报告化学体系分布、元素频率、空间群覆盖、晶胞大小分布、
+数据划分方法以及 MP 下载筛选条件。内置的固定随机种子验证集只是可复现的
+软件基线；若要声称外推能力，应另外采用按组成和原型留出的外部测试集。
 
-## 数据集覆盖度检查（推荐）
+## 默认生成服务
 
-为了做"更通用"的 intermetallic 生成，建议先用 `inspect` 看训练集覆盖度（元素、Hall number、Wyckoff 代表位点数等）：
+HTTP 服务带有可直接使用的默认设置，并接受任意有效化学组成。
+`backend="auto"` 依次使用本地 Matra/GenMat checkpoint、显式启用的远程
+Matra/Alexandria 服务和化学感知 algorithmic seed。后者会明确标记为
+非机器学习预测：
 
 ```powershell
-genim inspect --in data/mp_train.jsonl
-genim inspect --in data/mp_train.jsonl --wyckoff
-genim inspect --in data/mp_train.tokens.pt
+genmat serve --host 127.0.0.1 --port 8000
 ```
-
-## 用 Materials Project 做训练集
-
-1) 设置 API key：
 
 ```powershell
-$env:MP_API_KEY="你的MPKey"   # 或者用 $env:PMG_MAPI_KEY
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/generate `
+  -ContentType application/json `
+  -Body '{"formula":"LiFePO4","spacegroup_number":62,"n":4,"seed":7}'
 ```
 
-如果你不想在终端历史里留下 key，也可以把 key 写到当前目录的 `.mp_api_key`（一行一个 key），本工具会自动读取。该文件已被 gitignore。
+服务提供 `/v1/health`、`/v1/capabilities`、`/v1/models`、`/v1/generate`
+和 `/docs`。可用 `GENMAT_MATRA_CHECKPOINT`、`GENMAT_MATRA_SHA256`、
+`GENMAT_MODEL_CHECKPOINT`、`GENMAT_MODEL_SHA256` 配置模型；设置
+`GENMAT_ENABLE_ALEXANDRIA=1` 可启用远程后端。已有 `GENIM_*` 名称继续作为
+较低优先级兼容变量。显式请求不可用的 checkpoint
+后端会返回错误，不会把算法种子伪装成模型预测。
 
-2) 下载（示例：限定元素集合 + 结构大小过滤）：
+## 统一模型访问
 
 ```powershell
-genim mp-download --elements Fe Ni Al --max-atoms 80 --limit 5000 --out data/mp.jsonl
+genmat models list
+genmat models info matra/genoa-mpas-med@0.2
+genmat models pull matra/genoa-mpas-med@0.2 --accept-license
+genmat generate-ensemble --model matra/genoa-mpas-med@0.2 `
+  --accept-model-license --elements Na Cl --stoichiometry 1 1 `
+  --n-per-backend 8 --out-dir output/matra-nacl
 ```
 
-3) 预处理/训练/生成同上。
+```python
+from genmat import ModelRegistry
 
-### 生成时的 intermetallic 约束
+models = ModelRegistry.default()
+spec = models.info("matra-v02-med")
+backend = models.load_backend(spec, accept_license=True, device="auto")
+```
 
-`genim generate` 默认会做两类生成后过滤：
+模型进入目录不等于它已被证明适用于任意化学体系。解释结果前仍应检查训练域、
+数据覆盖和 model card。详见[模型访问与来源](docs/MODELS.md)。
 
-- 结构几何/对称性快速验收（最小原子距、可识别空间群等）。
-- **intermetallic 过滤**：默认要求 **至少 2 种元素**，并排除常见非金属/卤素等（可用 `--include-metalloids` 放开类金属）。
+## Python API
 
-同时默认开启**严格去重**，并把 `--n` 解释为"最多输出多少个**唯一**结构"。如果约束太严格导致达不到 `--n`，程序会输出尽可能多的唯一结构并给出拒绝原因统计（不再抛异常）。
+```python
+from genmat import ChemistryPolicy, GenMat, SamplingConfig
 
-如果你希望更贴近"二元/三元 intermetallic"训练集分布，可在生成时加：
+model = GenMat.from_checkpoint("checkpoints/mp_general.pt", device="auto")
+results = model.sample(
+    config=SamplingConfig(
+        n=64, batch_size=16, max_sites=25, min_sites=2,
+        temperature=0.9, seed=7,
+    ),
+    chemistry=ChemistryPolicy(
+        mode="any",
+        allowed_elements=["Na", "Cl", "K", "Br"],
+        min_elements=2,
+        max_elements=2,
+    ),
+)
+paths = model.write_valid_cifs(results, "output/alkali_halides")
+records = [result.to_record() for result in results]  # 含检查点哈希和验证指标
+```
+
+当前批量采样器对每个 token 位置只进行一次模型前向计算，服务接口和大批量
+测试可以直接复用。KV cache 是后续性能优化，不影响现有结果与来源记录格式。
+
+## GenMat 与 Matra 联合生成
+
+联合接口把两套模型视为独立候选来源，不拼接或平均不兼容的权重。
 
 ```powershell
-genim generate --ckpt checkpoints/mp_train.pt --n 200 --out-dir output/mp_cif --nelements-max 3
+genmat matra-checkpoint-info `
+  --ckpt ..\matra-genoa-preview\checkpoints\matra-v02-med.ckpt `
+  --expected-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa
+
+genmat generate-ensemble `
+  --genmat-ckpt checkpoints\mp_general.pt `
+  --matra-ckpt ..\matra-genoa-preview\checkpoints\matra-v02-med.ckpt `
+  --matra-sha256 4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa `
+  --elements Na Cl --stoichiometry 1 1 --stability stable `
+  --n-per-backend 64 --seed 7 --out-dir output\hybrid-nacl
 ```
 
-### "原型生成 → 元素替换"（更通用）
+Python API：
 
-当你希望生成某些训练集中覆盖较少/未覆盖的元素体系时（例如含类金属 Si/Ge 等），更稳妥的做法是：
+```python
+from genmat import (
+    EnsembleGenerator, GenerationConstraints, GenerationSettings, GenMatBackend,
+    MatraBackend, write_ensemble_run,
+)
 
-1) 先让模型生成**结构原型**（空间群/Wyckoff/坐标等）；
-2) 再用 `--substitute-elements` 把生成结构中的"元素集合"替换为你指定的元素（保持原型不变）。
+backends = [
+    GenMatBackend.from_checkpoint("checkpoints/mp_general.pt"),
+    MatraBackend.from_checkpoint(
+        "../matra-genoa-preview/checkpoints/matra-v02-med.ckpt",
+        expected_sha256="4e511528c4665be006e451f0e473381b3d02c286981608c7db0b743dcea0e4fa",
+    ),
+]
+run = EnsembleGenerator(backends).run(
+    condition=GenerationConstraints(
+        elements=("Na", "Cl"), stoichiometry=(1, 1), stability="stable",
+    ),
+    config=GenerationSettings(n=64, temperature=0.75, seed=7),
+)
+write_ensemble_run(run, "output/hybrid-nacl")
+```
 
-示例（生成 Fe–Si 二元原型并替换为 FeSi）：
+这里的 `selected` 只表示结构有效、约束未被证伪且在本次运行中唯一，不代表
+热力学稳定。每个约束明确报告为 `satisfied`、`violated` 或 `not_evaluated`，并
+记录方法和证据级别；稳定性/凸包目标仍需 MLIP 或 DFT 证据。详见
+[Matra 集成说明](docs/MATRA_INTEGRATION.md)。
+
+## 组成约束生成
 
 ```powershell
-genim generate --ckpt checkpoints/mp_train_fullsg_60.pt --n 20 --out-dir output/demo_FeSi --nelements-min 2 --nelements-max 2 --include-metalloids --substitute-elements Fe Si
+genmat synth --elements Na Cl --nelements 2 --ratios 1 1
+genmat synth --elements Fe O --nelements 2 --ratios 2 3
+genmat synth --elements Li Fe P O --nelements 4 `
+  --ratios 1 1 1 4 --ratio-mode ratio
 ```
 
-## 备注（MVP 取舍）
-
-为了先把"落地链路"跑通，本版本对连续变量（晶格参数与 Wyckoff 坐标）采用了 **离散分箱 token**。后续如需对标论文更强的表现，可把坐标/晶格改成连续密度建模（Gaussian embedding + mixture density head 等）。
-
-另外，如果你的目标是"尽可能通用/覆盖更多 intermetallic 体系"，建议：
-
-- `mp-download`：提高 `--limit`，放宽 `--nelements-max/--max-atoms/--eah-max`，并按需加 `--include-metalloids`。
-- `preprocess`：按需增大 `--max-sites`（会增加序列长度与训练成本）；也可加 `--seed-all-elements/--seed-all-hall` 以提升跨元素/对称性的可泛化性。
-- `train`：可用 `--element-emb features` 开启基于周期表特征的元素嵌入/预测（对未覆盖元素的"原则可生成"更友好）。
-
-## 更新（2026-03-04）
-
-- `mp-download` 新增 `--chemistry any`：用于构建"全空间群覆盖"数据集（不局限 intermetallic）。
-- 新增 `sym-seed`：当 MP 缺失某些空间群（例如本环境下缺失 SG=168/207）时，用 spglib 数据库合成最小结构样本补齐 230/230 空间群覆盖（仅用于对称性覆盖/条件化）。
-- `synth` 新增 `--n`：覆盖 `conf.yml` 的 `generate.n_max`（依然解释为最大生成数）。
-- 验收/过滤增强：`validate.min_dist_factor`（基于 covalent radii 的最小距离因子）+ `generate.dedup.mode: prototype`（更严格去重，避免"晶格略变"的重复）。
-
-## MLIP 弛豫 + Energy Above Hull 打分
-
-`genim score`（别名：`genim mlip`）：用 **eSEN/OMAT24（fairchem-core）** 对生成结构做"晶格 + 原子"快速弛豫，并自动构建同一化学体系的 ML reference set（来自 MP 结构 + 同一 MLIP 能量），计算每个结构的 `Energy Above Hull (eV/atom)`，输出 CSV。
-CSV 会额外给出 `composition_ratio`、`composition_percent` 和 `composition_counts`，分别表示约化比例、at.% 和具体原子个数。
-
-示例：
+`X` 表示元素必须存在、但比例不固定：
 
 ```powershell
-genim synth --elements Fe Si --nelements 2
-genim score --conf conf.yml --cif-dir output\\Fe-Si_2el
-
-# 或者用更"傻瓜式"的两步别名：
-genim gen --elements Fe Si --nelements 2
-genim mlip --conf conf.yml --cif-dir output\\Fe-Si_2el
+genmat synth --elements Li Fe P O --nelements 4 `
+  --ratios 1 X 1 X --ratio-mode ratio
 ```
 
-> 需要可选扩展：`pip install ".[all]"`（fairchem-core + pymatgen + scipy）。
+## 检查点与可复现性
 
-## 交互模式
-
-不带子命令运行 `genim` 进入交互式菜单。按 Enter 接受默认值（从 `conf.yml` 读取）。
+大数据和权重不提交到 Git，应作为不可变的 GitHub Release 资源发布并记录
+SHA256。v2 检查点包含格式版本、模型/词表/分词配置、GenMat 版本（旧文件键名
+仍可能是 `genim_version`）、时间、
+随机种子、训练步数、token 数据 SHA256、原始数据来源和数据统计。可用
+`genmat.checkpoints.download_checkpoint(...)` 原子下载并验证哈希。详见
+[检查点格式](docs/CHECKPOINT_FORMAT.md)。
 
 ```powershell
-genim
+genmat checkpoint-info --ckpt checkpoints/mp_train_fullsg_60.pt `
+  --expected-sha256 3777449fe396522c0173aaa699c70c99b4d28e26b436200545f08f86ff28173c
 ```
 
-菜单会打印它读/写的路径，运行一个所选模块后退出。交互模式下的组成控制写成一行 `R/P + values`，例如 `R 1 1 X X` 或 `P 20 20 20 20`。
+历史金属间模型仍可从 [GitHub Releases](https://github.com/XYG-Research/GenMat/releases)
+获得，但使用时必须明确它的训练域；经本地核验的文件名、大小、URL 和哈希记录
+在 [v0.1.0 资源清单](resources/release-v0.1.0.json) 中。
 
-## 结构快照面板
-
-可用 `genim snapshot-panel` 从生成的 CIF 目录中抽取固定数量的结构做快照面板。默认随机抽取，支持按 ID 区间过滤，每行 6 个，标签格式为 `009-Fe5Co5Ni5Al5`，其中数值是实际晶胞内原子数。每个 tile 用透视晶体视角渲染，同时显示原子与晶胞晶格线。
+## 可选科学筛选
 
 ```powershell
-genim snapshot-panel --cif-dir output\\Fe-Co-Ni-Al_4el --n 12
-genim snapshot-panel --cif-dir output\\Fe-Co-Ni-Al_4el --n 12 --id-start 9 --id-end 40
+genmat score --conf conf.yml --cif-dir output/cif
+genmat surface-screen --input-dir output/cif --out-dir output/surfaces
 ```
 
-配置都在 `conf.yml`：
+MLIP 能量和凸包结果继承模型与参考集的不确定性，不能在没有校准的情况下与
+DFT 能量混用。
 
-- `ml.*`：选择 eSEN 模型/设备；建议把 `ml.checkpoint` 指向本地 `esen_30m_oam.pt`（避免 HF 拉取/门控）。
-- `relax.*`：bulk 弛豫设置（ASE + ExpCellFilter/UnitCellFilter）。
-- `hull.*`：MP 参考池抓取 + reference-relax，`stable_threshold_eV_per_atom: 0.2` 对应 200 meV/atom 稳定门槛。
-
-## 预训练权重与数据下载
-
-为保持仓库轻量，训练数据（`data/`）与预训练权重（`checkpoints/`）**不随源码一起提交**，而是作为 [GitHub Releases](https://github.com/XYG-Research/GenIM/releases) 的附件分发：
-
-- `mp_train_fullsg_60.pt`：在 230 空间群全覆盖 + intermetallic 合并集上训练的 Causal Transformer 权重。
-- `mp_train.jsonl` / `mp_train.tokens.pt`：MP 抓取的训练结构与其 token 化数据集（源自 Materials Project，遵循其使用条款）。
-
-下载后放回对应目录即可（默认路径见 `conf.yml` 的 `paths.*`）：
+## 开发与文档
 
 ```powershell
-# 例：把下载的权重放到 checkpoints/ 下
-mkdir checkpoints
-mv mp_train_fullsg_60.pt checkpoints/
+python -m pytest -q
 ```
 
-你也可以**完全从零复现**：用 `genim mp-download`（需自备 `MP_API_KEY`）抓取数据，再 `preprocess` → `train`，命令见 [`ACCEPTANCE.md`](ACCEPTANCE.md)。
+- [科学范围](docs/SCIENTIFIC_SCOPE.md)
+- [检查点格式](docs/CHECKPOINT_FORMAT.md)
+- [架构](docs/ARCHITECTURE.md)
+- [Matra 集成说明](docs/MATRA_INTEGRATION.md)
 
 ## 参考文献
 
-本项目方法学受以下工作启发（均发表于 *npj Computational Materials*）：
+1. [doi:10.1038/s41524-025-01881-2](https://doi.org/10.1038/s41524-025-01881-2)
+2. [doi:10.1038/s41524-025-01940-8](https://doi.org/10.1038/s41524-025-01940-8)
 
-1. DOI: [10.1038/s41524-025-01881-2](https://doi.org/10.1038/s41524-025-01881-2)
-2. DOI: [10.1038/s41524-025-01940-8](https://doi.org/10.1038/s41524-025-01940-8)
+## 许可证
 
-## License
-
-本项目以 [BSD 3-Clause License](LICENSE) 开源。
+[BSD 3-Clause](LICENSE)

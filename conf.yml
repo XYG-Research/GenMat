@@ -1,6 +1,6 @@
-# GenIM unified configuration (all knobs live here).
+# GenMat unified configuration (all knobs live here).
 # Typical usage:
-#   genim synth --conf conf.yml --elements Fe Si --nelements 3
+#   genmat synth --conf conf.yml --elements Fe Si --nelements 3
 #
 # Notes:
 # - Keep your MP API key in env var MP_API_KEY/PMG_MAPI_KEY or a local `.mp_api_key` file (ignored by git).
@@ -15,14 +15,14 @@ paths:
 mp_download:
   chemsys: null
   elements: null
-  # intermetallic | any
-  chemistry_filter: intermetallic
+  # any | metallic | intermetallic
+  chemistry_filter: any
   # If true: download a balanced dataset across all 230 spacegroups (uses MP server-side spacegroup_number filter).
   balance_spacegroups: false
   per_spacegroup: 50
   max_atoms: 200
   eah_max: 1.0
-  nelements_min: 2
+  nelements_min: 1
   nelements_max: 5
   limit: 100000
   per_page: 500
@@ -41,7 +41,10 @@ preprocess:
   ang_max: 150.0
   seed_all_elements: true
   seed_all_hall: true
+  chemistry_mode: any
   include_metalloids: true
+  allowed_elements: null
+  excluded_elements: null
 
 train:
   steps: 20000
@@ -52,15 +55,21 @@ train:
   heads: 8
   dropout: 0.1
   seed: 7
+  val_fraction: 0.1
   element_emb: features  # token | features
+  element_feature_set: periodic8  # legacy4 | periodic8
 
 generate:
   n_max: 200
   max_sites: 25
   temperature: 1.0
   top_k: 0
+  # any | metallic | intermetallic
+  chemistry_mode: any
   include_metalloids: true
-  autoscale_cell: true
+  allowed_elements: null
+  excluded_elements: null
+  autoscale_cell: false
   prototype_mode: target   # target | random
 
   # Space-group sampling:
@@ -71,11 +80,11 @@ generate:
   fixed_hall: null
   fixed_spacegroup: null
 
-  # When nelements_total > len(required_elements), extra elements are drawn from this pool.
-  random_pool: intermetallic
+  # chemistry | any | metallic | intermetallic
+  random_pool: chemistry
 
-  # `genim synth` 可选的“原型元素调色板”：若设为 null，则使用完整 intermetallic 元素池；
-  # 若设为列表，则原型采样会优先在该列表内取元素（仍会做 post-hoc substitution）。
+  # `genmat synth` 的可选原型元素调色板。null 表示使用检查点词表中
+  # 所有满足 chemistry_mode 的元素；列表可显式限制原型元素。
   prototype_elements: null
   force_distinct_first_sites: true
 
@@ -90,19 +99,19 @@ generate:
   stop_after_no_new: 2000
 
 validate:
-  min_dist: 1.5
+  min_dist: 0.5
   symprec: 0.01
-  min_dist_factor: 0.75
-  max_dist_factor: 1.15
-  max_nn_factor: 1.35
-  min_coordination: 3
-  require_connected: true
-  max_atoms: 200
-  vol_per_atom_min: 5.0
-  vol_per_atom_max: 30.0
+  min_dist_factor: 0.55
+  max_dist_factor: null
+  max_nn_factor: 1.5
+  min_coordination: 1
+  require_connected: false
+  max_atoms: 500
+  vol_per_atom_min: 1.0
+  vol_per_atom_max: 100.0
 
 synth:
-  # 元素比例/占比控制（按 `genim synth --elements` 顺序对齐）。
+  # 元素比例/占比控制（按 `genmat synth --elements` 顺序对齐）。
   # - ratios: null 表示不做比例约束；否则填写与 elements 等长的列表
   #   数值表示约束项，X/null 表示该元素必须出现但组成不固定
   # - 写法示例：
