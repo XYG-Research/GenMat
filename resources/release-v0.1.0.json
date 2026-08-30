@@ -1,6 +1,6 @@
 {
-  "repository": "XYG-Research/GenIM",
-  "release_url": "https://github.com/XYG-Research/GenIM/releases/tag/v0.1.0",
+  "repository": "XYG-Research/GenMat",
+  "release_url": "https://github.com/XYG-Research/GenMat/releases/tag/v0.1.0",
   "tag": "v0.1.0",
   "published_at": "2026-06-17T12:47:55Z",
   "training_domain": "historical Materials Project/intermetallic-oriented corpus; not a GenIM 0.2 general-chemistry model",
@@ -9,21 +9,21 @@
       "name": "mp_train.jsonl",
       "size_bytes": 14004377,
       "sha256": "af8b1ef9af24b0f2b73ed45eb359e58b6f697e692b147e2ef6a202c8dea4ade0",
-      "url": "https://github.com/XYG-Research/GenIM/releases/download/v0.1.0/mp_train.jsonl",
+      "url": "https://github.com/XYG-Research/GenMat/releases/download/v0.1.0/mp_train.jsonl",
       "local_path": "data/mp_train.jsonl"
     },
     {
       "name": "mp_train.tokens.pt",
       "size_bytes": 48938956,
       "sha256": "b0bbd54a22ccc857fc44c65f184c095bf9b1022059cc822a0503be4aa95ebece",
-      "url": "https://github.com/XYG-Research/GenIM/releases/download/v0.1.0/mp_train.tokens.pt",
+      "url": "https://github.com/XYG-Research/GenMat/releases/download/v0.1.0/mp_train.tokens.pt",
       "local_path": "data/mp_train.tokens.pt"
     },
     {
       "name": "mp_train_fullsg_60.pt",
       "size_bytes": 21643498,
       "sha256": "3777449fe396522c0173aaa699c70c99b4d28e26b436200545f08f86ff28173c",
-      "url": "https://github.com/XYG-Research/GenIM/releases/download/v0.1.0/mp_train_fullsg_60.pt",
+      "url": "https://github.com/XYG-Research/GenMat/releases/download/v0.1.0/mp_train_fullsg_60.pt",
       "local_path": "checkpoints/mp_train_fullsg_60.pt",
       "checkpoint_format": 1,
       "element_feature_set": "legacy4"

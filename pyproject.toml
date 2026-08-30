@@ -68,9 +68,9 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/XYG-Research/GenIM"
-Repository = "https://github.com/XYG-Research/GenIM"
-Issues = "https://github.com/XYG-Research/GenIM/issues"
+Homepage = "https://github.com/XYG-Research/GenMat"
+Repository = "https://github.com/XYG-Research/GenMat"
+Issues = "https://github.com/XYG-Research/GenMat/issues"
 
 [project.scripts]
 genmat = "genmat.cli:main"

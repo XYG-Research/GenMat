@@ -5,7 +5,7 @@ type: software
 authors:
   - name: "XYG Research"
 version: 0.6.0
-repository-code: "https://github.com/XYG-Research/GenIM"
+repository-code: "https://github.com/XYG-Research/GenMat"
 license: BSD-3-Clause
 keywords:
   - crystal structure generation

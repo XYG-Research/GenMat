@@ -344,7 +344,7 @@ genmat checkpoint-info --ckpt checkpoints/mp_train_fullsg_60.pt `
   --expected-sha256 3777449fe396522c0173aaa699c70c99b4d28e26b436200545f08f86ff28173c
 ```
 
-历史金属间模型仍可从 [GitHub Releases](https://github.com/XYG-Research/GenIM/releases)
+历史金属间模型仍可从 [GitHub Releases](https://github.com/XYG-Research/GenMat/releases)
 获得，但使用时必须明确它的训练域；经本地核验的文件名、大小、URL 和哈希记录
 在 [v0.1.0 资源清单](resources/release-v0.1.0.json) 中。
 

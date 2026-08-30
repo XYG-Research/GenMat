@@ -424,7 +424,7 @@ genmat checkpoint-info --ckpt checkpoints/mp_train_fullsg_60.pt \
 ```
 
 The historical intermetallic checkpoint remains available from
-[GitHub Releases](https://github.com/XYG-Research/GenIM/releases), but its
+[GitHub Releases](https://github.com/XYG-Research/GenMat/releases), but its
 training domain must be reported when it is used. Its verified filenames, sizes,
 URLs, and hashes are recorded in
 [the v0.1.0 resource manifest](resources/release-v0.1.0.json).

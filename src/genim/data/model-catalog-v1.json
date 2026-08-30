@@ -17,7 +17,7 @@
       "filename": "mp_train_fullsg_60.pt",
       "source": {
         "type": "http",
-        "url": "https://github.com/XYG-Research/GenIM/releases/download/v0.1.0/mp_train_fullsg_60.pt",
+        "url": "https://github.com/XYG-Research/GenMat/releases/download/v0.1.0/mp_train_fullsg_60.pt",
         "local_paths": [
           "checkpoints/mp_train_fullsg_60.pt",
           "GenIM/checkpoints/mp_train_fullsg_60.pt"
@@ -26,7 +26,7 @@
       "sha256": "3777449fe396522c0173aaa699c70c99b4d28e26b436200545f08f86ff28173c",
       "size_bytes": 21643498,
       "license": "BSD-3-Clause for GenMat code; checkpoint use remains subject to its dataset provenance and release terms",
-      "license_url": "https://github.com/XYG-Research/GenIM/releases/tag/v0.1.0",
+      "license_url": "https://github.com/XYG-Research/GenMat/releases/tag/v0.1.0",
       "requires_license_acceptance": false,
       "optional_dependencies": [],
       "capabilities": {
